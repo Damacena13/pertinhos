@@ -1,0 +1,9 @@
+node_modules
+data
+.git
+test*.js
+ui-check.js
+mock-asaas.js
+README.md
+GUIA-PASSO-A-PASSO.md
+public-dist

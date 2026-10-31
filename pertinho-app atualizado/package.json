@@ -1,0 +1,30 @@
+{
+  "name": "pertinho",
+  "version": "1.0.0",
+  "description": "Site de relacionamento por proximidade",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "PAYMENTS_MODE=demo DEMO_BOTS=1 DEMO_AUTOLIKE=1 node server.js",
+    "seed:demo": "node seed-demo.js",
+    "test": "node test.js && node test-extras.js && node test-pix.js && node test-referral.js && node test-referral-verified.js && node test-events.js && node test-security.js && node test-geo.js && node test-cpf.js && node test-direct.js && node test-notify.js && node test-reset.js && node test-confirm.js",
+    "build": "node build-public.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.3.0",
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "multer": "^2.4.0",
+    "sharp": "^0.35.5"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22.5"
+  },
+  "devDependencies": {
+    "terser": "^5.31.6"
+  }
+}

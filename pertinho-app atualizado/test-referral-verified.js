@@ -1,0 +1,81 @@
+'use strict';
+// Indicação com selfie obrigatória (padrão).
+const { spawn, spawnSync } = require('child_process');
+const { DatabaseSync } = require('node:sqlite');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const assert = require('assert');
+
+const PORT = 3992;
+const BASE = `http://127.0.0.1:${PORT}`;
+const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'pertinho-refv-'));
+const env = { ...process.env, PORT: String(PORT), DATA_DIR, ADMIN_EMAIL: 'admin@teste.com', ADMIN_PASSWORD: 'SenhaAdmin#123', PAYMENTS_MODE: 'demo', DEMO_BOTS: '1', DEMO_AUTOLIKE: '1', NODE_ENV: 'test', AUTH_RATE_LIMIT: '300' };
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const DAY = 86400000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+class Client {
+  constructor() { this.cookie = ''; }
+  async req(method, url, body) {
+    const headers = {};
+    if (this.cookie) headers.cookie = this.cookie;
+    if (method !== 'GET') headers['x-pertinho'] = '1';
+    let payload = body;
+    if (body && !(body instanceof FormData)) { headers['content-type'] = 'application/json'; payload = JSON.stringify(body); }
+    const res = await fetch(BASE + url, { method, headers, body: payload });
+    for (const c of res.headers.getSetCookie?.() || []) { const kv = c.split(';')[0]; this.cookie = kv.endsWith('=') ? '' : kv; }
+    const ct = res.headers.get('content-type') || '';
+    const data = ct.includes('json') ? await res.json() : Buffer.from(await res.arrayBuffer());
+    return { status: res.status, data, headers: res.headers };
+  }
+  get(u) { return this.req('GET', u); }
+  post(u, b) { return this.req('POST', u, b ?? {}); }
+  patch(u, b) { return this.req('PATCH', u, b); }
+}
+let passed = 0, failed = 0;
+async function t(name, fn) {
+  try { await fn(); passed++; console.log('  ok   ' + name); }
+  catch (e) { failed++; console.log('  FALHOU ' + name + '\n         ' + String(e.message || e).split('\n')[0]); }
+}
+const { nextCpf } = require('./test-util');
+const reg = (email, name, extra = {}) => ({ cpf: nextCpf(), email, password: 'senha-forte-123', name, birthDate: '1994-04-10', gender: 'f', seeking: 'all', cityId: 'sao-jose-do-rio-preto-sp', bio: 'Teste', terms: true, interests: ['Café', 'Trilhas'], ...extra });
+const photo = (field = 'photo') => { const f = new FormData(); f.append(field, new Blob([PNG], { type: 'image/png' }), 'x.png'); return f; };
+const dbq = () => new DatabaseSync(path.join(DATA_DIR, 'pertinho.db'));
+const one = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).get(...a); } finally { d.close(); } };
+const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(...a); } finally { d.close(); } };
+
+(async () => {
+  const srv = spawn('node', ['server.js'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let srvLog = ''; srv.stdout.on('data', (d) => (srvLog += d)); srv.stderr.on('data', (d) => (srvLog += d));
+  try {
+    for (let i = 0; i < 80; i++) { try { if ((await fetch(BASE + '/api/plans')).ok) break; } catch (e) { /* subindo */ } await sleep(250); }
+    const ADM = new Client(); await ADM.post('/api/auth/login', { email: 'admin@teste.com', password: 'SenhaAdmin#123' });
+    const A = new Client(); await A.post('/api/auth/register', reg('ana@teste.com', 'Ana'));
+    const code = (await A.get('/api/me/referral')).data.code;
+    const B = new Client(); assert.strictEqual((await B.post('/api/auth/register', reg('bia@teste.com', 'Bia', { ref: code }))).data.referral, 'pending');
+    await t('só a foto NÃO libera o prêmio quando a selfie é obrigatória', async () => {
+      const r = await B.post('/api/me/photos', photo()); assert.strictEqual(r.status, 201); assert.strictEqual(r.data.referral, 'pending');
+      assert.strictEqual((await A.get('/api/me/referral')).data.rewarded, 0); assert.strictEqual((await A.get('/api/me/referral')).data.requireVerified, true);
+      assert.strictEqual((await B.get('/api/me')).data.user.plan, 'free');
+    });
+    await t('selfie recusada não libera; aprovada libera o prêmio dos dois lados', async () => {
+      await B.post('/api/me/verification/start'); await B.req('POST', '/api/me/verification', photo('selfie'));
+      let q = (await ADM.get('/api/admin/verifications')).data.verifications;
+      assert.strictEqual((await ADM.post(`/api/admin/verifications/${q[0].id}/decide`, { action: 'reject' })).status, 200);
+      assert.strictEqual((await A.get('/api/me/referral')).data.rewarded, 0);
+      await B.post('/api/me/verification/start'); await B.req('POST', '/api/me/verification', photo('selfie'));
+      q = (await ADM.get('/api/admin/verifications')).data.verifications;
+      assert.strictEqual((await ADM.post(`/api/admin/verifications/${q[0].id}/decide`, { action: 'approve' })).status, 200);
+      assert.strictEqual((await A.get('/api/me/referral')).data.rewarded, 1);
+      assert.strictEqual((await B.get('/api/me')).data.user.plan, 'plus');
+      assert.ok(one("SELECT 1 FROM audit_log WHERE action = 'referral.reward'"));
+    });
+  } catch (e) { failed++; console.log('ERRO GERAL', e.message); }
+  srv.kill();
+  await sleep(300);
+  fs.rmSync(DATA_DIR, { recursive: true, force: true });
+  console.log(`\n${passed} passaram, ${failed} falharam`);
+  if (failed && process.env.SHOW_LOG) console.log('--- log do servidor ---\n' + srvLog);
+  process.exit(failed ? 1 : 0);
+})();
