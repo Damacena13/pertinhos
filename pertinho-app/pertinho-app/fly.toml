@@ -1,0 +1,36 @@
+# Configuração do Fly.io. Troque "pertinhos-SEUNOME" por um nome único (o fly launch pergunta).
+app = "pertinhos-SEUNOME"
+primary_region = "gru"          # São Paulo
+
+[build]
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  DATA_DIR = "/data"
+  TRUST_PROXY = "1"
+  PAYMENTS_MODE = "off"          # troque para "asaas" depois de testar no sandbox
+  # PUBLIC_URL = "https://seudominio.com"
+
+[mounts]
+  source = "pertinho_data"       # disco permanente: banco, fotos e o segredo do CPF
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "off"     # sempre ligado: o Asaas precisa alcançar o webhook
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.checks]
+    [http_service.checks.health]
+      grace_period = "20s"
+      interval = "30s"
+      timeout = "5s"
+      method = "GET"
+      path = "/api/plans"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"                 # a biblioteca de imagens (sharp) trabalha melhor com 1 GB

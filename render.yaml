@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: pertinhos-demo
+    runtime: node
+    plan: free
+    region: ohio
+    rootDir: ./pertinho-app/pertinho-app
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/plans
+    envVars:
+      - key: NODE_VERSION
+        value: 22.23.4
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /tmp/pertinhos-data
+      - key: TRUST_PROXY
+        value: "1"
+      - key: PAYMENTS_MODE
+        value: off
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: CPF_PEPPER
+        sync: false
