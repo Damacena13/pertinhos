@@ -38,7 +38,7 @@ async function t(name, fn) {
   try { await fn(); passed++; console.log('  ok   ' + name); }
   catch (e) { failed++; console.log('  FALHOU ' + name + '\n         ' + String(e.message || e).split('\n')[0]); }
 }
-const { nextCpf, stopChild } = require('./test-util');
+const { nextCpf } = require('./test-util');
 const reg = (email, name, extra = {}) => ({ cpf: nextCpf(), email, password: 'senha-forte-123', name, birthDate: '1994-04-10', gender: 'f', seeking: 'all', cityId: 'sao-jose-do-rio-preto-sp', bio: 'Teste', terms: true, interests: ['Café', 'Trilhas'], ...extra });
 const photo = (field = 'photo') => { const f = new FormData(); f.append(field, new Blob([PNG], { type: 'image/png' }), 'x.png'); return f; };
 const dbq = () => new DatabaseSync(path.join(DATA_DIR, 'pertinho.db'));
@@ -119,7 +119,8 @@ const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(..
       const x = (await A.get('/api/events')).data.items.find((i) => i.mine); assert.strictEqual((await A.post(`/api/events/${x.id}/cancel`)).status, 200);
     });
   } catch (e) { failed++; console.log('ERRO GERAL', e.message); }
-  await stopChild(srv);
+  srv.kill();
+  await sleep(300);
   fs.rmSync(DATA_DIR, { recursive: true, force: true });
   console.log(`\n${passed} passaram, ${failed} falharam`);
   if (failed && process.env.SHOW_LOG) console.log('--- log do servidor ---\n' + srvLog);

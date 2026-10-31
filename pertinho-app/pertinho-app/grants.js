@@ -1,10 +1,11 @@
 'use strict';
 // O que cada compra concede (e o que o estorno devolve). Usado pelo modo demonstração e pelo Pix do Asaas.
-// Um "pedido" é { item: 'plan', plan: 'plus'|'premium', months: 1|3|6 } ou { item: 'shop', key: 'pass24h'|'boost30m'|'photos3' }.
+// Um "pedido" é { item: 'plan', plan: 'plus'|'premium', months: 1|3|6 } ou { item: 'shop', key: 'pass24h'|'boost30m'|'boost90m'|'photos3'|'photos10' }.
 const DAY = 86400000;
 const PASS_MS = DAY;
 const BOOST_MS = 30 * 60 * 1000;
-const PHOTO_PACK = 3;
+const PHOTO_PACKS = { photos3: 3, photos10: 10 };
+const BOOST_PACKS = { boost30m: 1, boost90m: 3 };
 
 module.exports = function makeGrants({ db, L }) {
   // Valida o pedido e devolve o preço oficial (sempre calculado aqui, nunca vindo do cliente).
@@ -36,12 +37,12 @@ module.exports = function makeGrants({ db, L }) {
       db.prepare('UPDATE users SET pass_until = ? WHERE id = ?').run(until, u.id);
       return until;
     }
-    if (order.key === 'boost30m') {
-      const until = Math.max(t, u.boost_until || 0) + BOOST_MS;
+    if (BOOST_PACKS[order.key]) {
+      const until = Math.max(t, u.boost_until || 0) + BOOST_MS * BOOST_PACKS[order.key];
       db.prepare('UPDATE users SET boost_until = ? WHERE id = ?').run(until, u.id);
       return until;
     }
-    if (order.key === 'photos3') { db.prepare('UPDATE users SET photo_credits = photo_credits + ? WHERE id = ?').run(PHOTO_PACK, u.id); return null; }
+    if (PHOTO_PACKS[order.key]) { db.prepare('UPDATE users SET photo_credits = photo_credits + ? WHERE id = ?').run(PHOTO_PACKS[order.key], u.id); return null; }
     return null;
   }
 
@@ -59,8 +60,8 @@ module.exports = function makeGrants({ db, L }) {
       db.prepare(`UPDATE users SET ${col} = ? WHERE id = ?`).run(next > t ? next : null, u.id);
     };
     if (order.key === 'pass24h') sub('pass_until', PASS_MS);
-    else if (order.key === 'boost30m') sub('boost_until', BOOST_MS);
-    else if (order.key === 'photos3') db.prepare('UPDATE users SET photo_credits = MAX(0, photo_credits - ?) WHERE id = ?').run(PHOTO_PACK, u.id);
+    else if (BOOST_PACKS[order.key]) sub('boost_until', BOOST_MS * BOOST_PACKS[order.key]);
+    else if (PHOTO_PACKS[order.key]) db.prepare('UPDATE users SET photo_credits = MAX(0, photo_credits - ?) WHERE id = ?').run(PHOTO_PACKS[order.key], u.id);
   }
 
   return { parseOrder, fromRow, grant, revoke };

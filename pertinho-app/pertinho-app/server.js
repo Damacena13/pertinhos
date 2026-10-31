@@ -11,7 +11,7 @@ const { db, UPLOAD_DIR } = require('./db');
 const L = require('./lib');
 const cupid = require('./cupid');
 const grants = require('./grants')({ db, L });
-const { CITIES, byId: cityById } = require('./cities');
+const { CITIES, UFS, byId: cityById } = require('./cities');
 const { makeEvents } = require('./events');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -69,6 +69,23 @@ app.use(
     crossOriginEmbedderPolicy: false,
   })
 );
+app.use((req, res, next) => { // recursos do navegador que o site não usa ficam desligados
+  res.set('Permissions-Policy', 'geolocation=(self), camera=(), microphone=(), payment=(), usb=(), interest-cohort=()');
+  next();
+});
+// Dados pessoais nunca ficam em cache de navegador ou de intermediários (fotos e listas públicas têm regra própria).
+app.use('/api', (req, res, next) => {
+  if (!req.path.startsWith('/photos/') && req.path !== '/cities' && req.path !== '/plans') res.set('Cache-Control', 'no-store');
+  next();
+});
+// Barra ferramentas de raspagem conhecidas (não pega quem disfarça o User-Agent: por isso há também limites por usuário).
+const BOT_UA = /(curl|wget|python-requests|python-urllib|scrapy|httpx|aiohttp|libwww|go-http-client|okhttp|java\/|httrack|phantomjs|selenium|puppeteer|colly|node-fetch|axios|mechanize|postmanruntime)/i;
+app.use('/api', (req, res, next) => {
+  if (process.env.BOT_BLOCK === '0' || req.path === '/webhooks/asaas') return next();
+  const ua = req.get('user-agent') || '';
+  if (!ua || BOT_UA.test(ua)) return res.status(403).json({ error: 'Requisição recusada.' });
+  next();
+});
 app.use(express.json({ limit: '20kb' }));
 
 /* ---------- utilidades HTTP ---------- */
@@ -107,6 +124,9 @@ const limitAuth = rateLimit({ windowMs: 15 * 60_000, limit: Number(process.env.A
 const limitMsg = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => `u${req.user ? req.user.id : req.ip}`, validate: { keyGeneratorIpFallback: false }, message: { error: 'Você está enviando mensagens rápido demais.' } });
 const limitUpload = rateLimit({ windowMs: 60 * 60_000, limit: 30, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => `u${req.user ? req.user.id : req.ip}`, validate: { keyGeneratorIpFallback: false }, message: { error: 'Limite de envios de foto atingido. Tente mais tarde.' } });
 app.use('/api', limitGeneral);
+const perUser = (windowMs, limit) => rateLimit({ windowMs, limit, standardHeaders: true, legacyHeaders: false, keyGenerator: (req) => `u${req.user ? req.user.id : req.ip}`, validate: { keyGeneratorIpFallback: false }, message: { error: 'Muitos pedidos em pouco tempo. Aguarde um pouco.' } });
+const limitScrape = perUser(10 * 60_000, Number(process.env.SCRAPE_LIMIT) || 150); // descoberta e radar
+const limitPhotos = perUser(10 * 60_000, Number(process.env.PHOTO_LIMIT) || 600);
 
 /* ---------- autenticação ---------- */
 const qSession = db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.expires_at > ?');
@@ -131,7 +151,10 @@ function requireAuth(req, res, next) {
   if (req.user.status !== 'active') return res.status(403).json({ error: 'Sua conta está suspensa.', suspended: true, reason: req.user.suspend_reason || '' });
   next();
 }
+const ADMIN_IPS = (process.env.ADMIN_ALLOWED_IPS || '').split(',').map((x) => x.trim()).filter(Boolean);
+const adminIpOk = (req) => !ADMIN_IPS.length || ADMIN_IPS.includes(req.ip);
 function requireAdmin(req, res, next) {
+  if (!adminIpOk(req)) return res.status(404).json({ error: 'Rota não encontrada.' });
   if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Acesso restrito.' });
   next();
 }
@@ -190,7 +213,9 @@ const audit = (adminId, action, target, detail) =>
   db.prepare('INSERT INTO audit_log (admin_id, action, target, detail, created_at) VALUES (?,?,?,?,?)').run(adminId, action, target, detail ? String(detail).slice(0, 500) : null, now());
 
 /* ---------- dados públicos ---------- */
-app.get('/api/cities', (req, res) => res.json(CITIES.map(({ id, name, uf }) => ({ id, name, uf }))));
+app.get('/api/cities', (req, res) => {
+  res.set('Cache-Control', 'public, max-age=86400').json({ ufs: UFS, cities: CITIES.map((c) => [c.id, c.name, c.uf]) });
+});
 app.get('/api/plans', (req, res) => {
   res.json({
     paymentsEnabled: PAYMENTS === 'demo' || PAYMENTS === 'asaas',
@@ -237,12 +262,25 @@ app.post('/api/auth/register', limitAuth, async (req, res) => {
   const cpfH = L.cpfHash(cpf, CPF_PEPPER);
   if (db.prepare('SELECT 1 FROM users WHERE cpf_hash = ?').get(cpfH)) throw new HttpError(409, 'Este CPF já tem cadastro. Entre na conta existente ou fale com o suporte.');
 
+  // Conferência em base oficial (quando contratada): idade e nome vêm do CPF, não do que a pessoa digitou.
+  let cpfOfficial = 0, birthDate = b.birthDate;
+  const chk = await cpfCheck.verify(cpf, { name, birth: String(b.birthDate) });
+  if (chk.enabled) {
+    if (chk.status === 'minor') { audit(null, 'signup.minor_blocked', `cpf_last2:${cpf.slice(-2)}`, ''); throw new HttpError(403, 'O Pertinho é só para maiores de 18 anos.'); }
+    if (chk.status === 'notfound') throw bad('Não encontramos este CPF na base da Receita Federal. Confira os números.');
+    if (chk.status === 'blocked') throw bad('Este CPF não pode ser usado no cadastro (situação cadastral irregular).');
+    if (chk.status === 'mismatch') throw bad('O nome e a data de nascimento não conferem com este CPF. Use seu primeiro nome como no documento.');
+    if (chk.status === 'unavailable' && chk.required) throw new HttpError(503, 'Não conseguimos conferir o CPF agora. Tente de novo em alguns minutos.');
+    if (chk.status === 'ok') { cpfOfficial = 1; birthDate = chk.birth; }
+  }
+
   const hash = await L.hashPassword(password);
   const info = db
     .prepare(`INSERT INTO users (email, pass_hash, name, birth_date, gender, seeking, bio, interests, city_id, city_name, lat, lng, loc_source, terms_at, created_at, last_seen, cpf_hash, cpf_last2)
               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-    .run(email, hash, name, b.birthDate, b.gender, seeking, bio, JSON.stringify(L.cleanInterests(b.interests)), city.id, `${city.name} - ${city.uf}`, null, null, 'city', now(), now(), now(), cpfH, cpf.slice(-2));
+    .run(email, hash, name, birthDate, b.gender, seeking, bio, JSON.stringify(L.cleanInterests(b.interests)), city.id, `${city.name} - ${city.uf}`, null, null, 'city', now(), now(), now(), cpfH, cpf.slice(-2));
   const id = Number(info.lastInsertRowid);
+  if (cpfOfficial) db.prepare('UPDATE users SET cpf_checked = 1 WHERE id = ?').run(id);
   const pt = L.cityPoint(city, id);
   db.prepare('UPDATE users SET lat = ?, lng = ? WHERE id = ?').run(pt.lat, pt.lng, id);
   referrals.ensureCode(id);
@@ -258,12 +296,22 @@ app.get('/api/me/referral', requireAuth, (req, res) => {
   res.json(referrals.summary(req.user.id, base));
 });
 
+const loginFails = new Map(); // bloqueio temporário por e-mail + IP, para não travar a conta da vítima a partir de outro lugar
+const LOGIN_MAX_FAILS = 6;
 app.post('/api/auth/login', limitAuth, async (req, res) => {
   const email = L.clean(req.body?.email, 160).toLowerCase();
   const password = String(req.body?.password || '');
   const u = qEmail.get(email);
+  const lk = loginFails.get(`${email}|${req.ip}`);
+  if (lk && lk.until > now()) throw new HttpError(429, 'Muitas tentativas erradas. Aguarde alguns minutos e tente de novo, ou use "Esqueci a senha".');
   const ok = await L.verifyPassword(password, u ? u.pass_hash : L.DUMMY_HASH);
-  if (!u || !ok) throw new HttpError(401, 'E-mail ou senha incorretos.');
+  if (!u || !ok || (u.role === 'admin' && !adminIpOk(req))) {
+    const k = `${email}|${req.ip}`, f = loginFails.get(k) || { n: 0 };
+    f.n++; if (f.n >= LOGIN_MAX_FAILS) { f.until = now() + 15 * 60_000; f.n = 0; }
+    loginFails.set(k, f); if (loginFails.size > 5000) loginFails.clear();
+    throw new HttpError(401, 'E-mail ou senha incorretos.');
+  }
+  loginFails.delete(`${email}|${req.ip}`);
   if (u.status !== 'active') return res.status(403).json({ error: 'Sua conta está suspensa.', suspended: true, reason: u.suspend_reason || '' });
   await startSession(res, u.id);
   qTouch.run(now(), u.id);
@@ -287,6 +335,7 @@ app.post('/api/auth/password', requireAuth, limitAuth, async (req, res) => {
 
 /* ---------- recuperação de senha ---------- */
 const mailer = require('./mailer');
+const cpfCheck = require('./cpfcheck').makeCpfCheck();
 const notify = require('./notify').makeNotify({ db, mailer, now, secret: CPF_PEPPER, cityById });
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const RESET_MS = 60 * 60 * 1000;
@@ -473,7 +522,8 @@ app.delete('/api/me/photos/:id', requireAuth, (req, res) => {
 });
 
 // A foto principal é visível para quem está logado. As extras só para o dono, administradores e planos pagos.
-app.get('/api/photos/:id', requireAuth, (req, res) => {
+app.get('/api/photos/:id', requireAuth, limitPhotos, (req, res) => {
+  if (req.get('sec-fetch-site') === 'cross-site') throw new HttpError(403, 'Requisição recusada.'); // sem hotlink de outros sites
   const id = intId(req.params.id);
   const p = id && db.prepare("SELECT p.*, u.status AS ustatus FROM photos p JOIN users u ON u.id = p.user_id WHERE p.id = ? AND p.status = 'ok'").get(id);
   if (!p) throw new HttpError(404, 'Foto não encontrada.');
@@ -546,7 +596,7 @@ const DAY = 24 * 3600 * 1000;
 const qLikesToday = db.prepare("SELECT COUNT(*) c FROM swipes WHERE from_id = ? AND kind = 'like' AND created_at > ?");
 const qSuperToday = db.prepare("SELECT COUNT(*) c FROM swipes WHERE from_id = ? AND kind = 'super' AND created_at > ?");
 
-app.get('/api/discover', requireAuth, (req, res) => {
+app.get('/api/discover', requireAuth, limitScrape, (req, res) => {
   const me = req.user;
   const plan = planOf(me);
   if (me.lat == null) throw bad('Defina sua cidade ou localização primeiro.');
@@ -603,6 +653,20 @@ app.get('/api/discover', requireAuth, (req, res) => {
   });
 });
 
+// Radar do Brasil: quantas pessoas há por estado e, escolhendo um estado, por cidade. Só números, nunca perfis.
+app.get('/api/radar', requireAuth, limitScrape, (req, res) => {
+  const uf = String(req.query.uf || '').toUpperCase();
+  const base = "FROM users u WHERE u.role = 'user' AND u.status = 'active' AND u.city_id IS NOT NULL" + VIS;
+  if (!uf) {
+    const rows = db.prepare(`SELECT substr(u.city_id, -2) AS uf, COUNT(*) n ${base} GROUP BY 1`).all();
+    const by = Object.fromEntries(rows.map((r) => [r.uf.toUpperCase(), r.n]));
+    return res.json({ total: rows.reduce((a, r) => a + r.n, 0), states: Object.keys(UFS).map((k) => ({ uf: k, name: UFS[k], n: by[k] || 0 })) });
+  }
+  if (!UFS[uf]) throw bad('Estado inválido.');
+  const rows = db.prepare(`SELECT u.city_id, COUNT(*) n ${base} AND u.city_id LIKE ? GROUP BY u.city_id ORDER BY n DESC LIMIT 60`).all('%-' + uf.toLowerCase());
+  const cities = rows.map((r) => { const c = cityById(r.city_id); return c ? { id: c.id, name: c.name, n: r.n } : null; }).filter(Boolean);
+  res.json({ uf, name: UFS[uf], total: cities.reduce((a, c) => a + c.n, 0), cities });
+});
 app.get('/api/discover/count', requireAuth, (req, res) => {
   // quantas pessoas existem por raio (1, 5, 10, 25, 50, 100 km), para o mapa
   const me = req.user;
@@ -621,7 +685,7 @@ const qMatchBetween = db.prepare('SELECT id FROM matches WHERE a_id = ? AND b_id
 function createMatch(x, y) {
   const a = Math.min(x, y), b = Math.max(x, y);
   const ex = qMatchBetween.get(a, b);
-  if (ex) return ex.id;
+  if (ex) { db.prepare('UPDATE matches SET accepted_at = ? WHERE id = ? AND direct_by IS NOT NULL AND accepted_at IS NULL').run(now(), ex.id); return ex.id; } // curtida recíproca aceita o pedido
   const id = Number(db.prepare('INSERT INTO matches (a_id, b_id, created_at) VALUES (?,?,?)').run(a, b, now()).lastInsertRowid);
   try { notify.match(a, b, id); } catch (e) { console.error(e); }
   return id;
@@ -731,7 +795,7 @@ app.get('/api/matches', requireAuth, (req, res) => {
   const me = req.user;
   const rows = db
     .prepare(
-      `SELECT m.id, m.created_at, CASE WHEN m.a_id = @me THEN m.b_id ELSE m.a_id END AS other_id,
+      `SELECT m.id, m.created_at, m.direct_by, m.accepted_at, CASE WHEN m.a_id = @me THEN m.b_id ELSE m.a_id END AS other_id,
          (SELECT body FROM messages WHERE match_id = m.id ORDER BY id DESC LIMIT 1) AS last_body,
          (SELECT kind FROM messages WHERE match_id = m.id ORDER BY id DESC LIMIT 1) AS last_kind,
          (SELECT created_at FROM messages WHERE match_id = m.id ORDER BY id DESC LIMIT 1) AS last_at,
@@ -747,6 +811,7 @@ app.get('/api/matches', requireAuth, (req, res) => {
     if (!o || blockedBetween(me.id, o.id)) continue;
     out.push({
       id: r.id, createdAt: r.created_at, unread: r.unread, lastAt: r.last_at, trialLeft: trialLeft(me, r.sent),
+      request: r.direct_by && !r.accepted_at ? (r.direct_by === me.id ? 'sent' : 'received') : null,
       last: r.last_body ? (r.last_kind === 'place' ? 'Sugestão de encontro' : r.last_body) : null,
       user: publicProfile(o, me, distBetween(me, o)),
     });
@@ -762,6 +827,7 @@ app.get('/api/matches/:id/messages', requireAuth, (req, res) => {
   res.json({
     other: publicProfile(other, req.user, distBetween(req.user, other)),
     trialLeft: trialLeft(req.user, sentIn(m.id, req.user.id)),
+    request: m.direct_by && !m.accepted_at ? (m.direct_by === req.user.id ? 'sent' : 'received') : null,
     messages: msgs.map((x) => ({ id: x.id, mine: x.sender_id === req.user.id, kind: x.kind, body: x.body, at: x.created_at })),
   });
 });
@@ -785,10 +851,13 @@ app.post('/api/matches/:id/messages', requireAuth, requireConfirmed, limitMsg, (
   if (kind === 'place') {
     if (!PLACE_TYPES.includes(body)) throw bad('Tipo de local inválido.');
   } else if (!body) throw bad('Escreva uma mensagem.');
-  if (!L.chatUnlocked(req.user) && sentIn(m.id, req.user.id) >= L.FREE_CHAT_MESSAGES) {
+  const pendingDirect = m.direct_by && !m.accepted_at;
+  if (pendingDirect && m.direct_by === req.user.id && sentIn(m.id, req.user.id) >= 1) throw new HttpError(409, `Aguarde ${other.name} responder ao seu pedido de conversa.`, 'direct_wait');
+  if (!pendingDirect && !L.chatUnlocked(req.user) && sentIn(m.id, req.user.id) >= L.FREE_CHAT_MESSAGES) {
     throw new HttpError(402, `Suas ${L.FREE_CHAT_MESSAGES} mensagens grátis com ${other.name} acabaram. Assine um plano ou compre o Passe 24h para continuar a conversa.`, 'trial_over');
   }
   const info = db.prepare('INSERT INTO messages (match_id, sender_id, kind, body, created_at) VALUES (?,?,?,?,?)').run(m.id, req.user.id, kind, body, now());
+  if (pendingDirect && m.direct_by !== req.user.id) db.prepare('UPDATE matches SET accepted_at = ? WHERE id = ?').run(now(), m.id); // responder aceita o pedido
   if (DEMO_BOTS && other.is_demo) botReply(m.id, other.id);
   try { notify.message(other.id, req.user.id, m.id); } catch (e) { console.error(e); }
   res.status(201).json({ id: Number(info.lastInsertRowid), trialLeft: trialLeft(req.user, sentIn(m.id, req.user.id)) });
@@ -801,6 +870,42 @@ app.get('/api/matches/:id/icebreakers', requireAuth, (req, res) => {
   res.json({ suggestions: cupid.icebreakers(req.user, other, n, 3) });
 });
 
+// Passe 24h: manda a primeira mensagem sem match. Vira um "pedido de conversa" que a outra pessoa aceita (respondendo) ou recusa.
+const DIRECT_PER_PASS = 15;
+app.post('/api/users/:id/direct', requireAuth, requireConfirmed, limitMsg, (req, res) => {
+  const me = req.user, tid = intId(req.params.id);
+  const body = L.clean(req.body?.body, 500);
+  if (!tid || tid === me.id) throw bad('Pedido inválido.');
+  if (!L.passActive(me)) throw new HttpError(402, 'Para mandar mensagem antes do match, ative o Passe 24h.', 'need_pass');
+  const target = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'user' AND status = 'active'").get(tid);
+  if (!target || blockedBetween(me.id, tid) || !confirmed(target)) throw new HttpError(404, 'Perfil não encontrado.');
+  if (db.prepare("SELECT 1 FROM swipes WHERE from_id = ? AND to_id = ? AND kind = 'pass'").get(tid, me.id)) throw bad('Não foi possível enviar para este perfil.');
+  if (!body) throw bad('Escreva uma mensagem.');
+  const a = Math.min(me.id, tid), b = Math.max(me.id, tid);
+  const ex = qMatchBetween.get(a, b);
+  if (ex) return res.status(200).json({ matchId: ex.id, existing: true });
+  const since = now() - 24 * 3600_000;
+  const used = db.prepare('SELECT COUNT(*) c FROM matches WHERE direct_by = ? AND created_at > ?').get(me.id, Math.max(since, me.pass_until - DAY)).c;
+  if (used >= DIRECT_PER_PASS) throw new HttpError(429, `Você já enviou ${DIRECT_PER_PASS} pedidos de conversa com este Passe.`);
+  const bot = DEMO_BOTS && target.is_demo;
+  const matchId = db.transaction(() => {
+    const r = db.prepare('INSERT INTO matches (a_id, b_id, created_at, direct_by, accepted_at) VALUES (?,?,?,?,?)').run(a, b, now(), me.id, bot ? now() : null);
+    db.prepare('INSERT INTO messages (match_id, sender_id, kind, body, created_at) VALUES (?,?,?,?,?)').run(r.lastInsertRowid, me.id, 'text', body, now());
+    return Number(r.lastInsertRowid);
+  })();
+  if (bot) botReply(matchId, target.id);
+  try { notify.message(tid, me.id, matchId); } catch (e) { console.error(e); }
+  res.status(201).json({ matchId });
+});
+app.post('/api/matches/:id/decline', requireAuth, (req, res) => {
+  const { m, other } = matchFor(req, req.params.id);
+  if (!m.direct_by || m.accepted_at || m.direct_by === req.user.id) throw bad('Só dá para recusar um pedido de conversa recebido.');
+  db.transaction(() => {
+    db.prepare("INSERT OR REPLACE INTO swipes (from_id, to_id, kind, created_at) VALUES (?,?,'pass',?)").run(req.user.id, other.id, now());
+    db.prepare('DELETE FROM matches WHERE id = ?').run(m.id);
+  })();
+  res.json({ ok: true });
+});
 app.delete('/api/matches/:id', requireAuth, (req, res) => {
   const mid = intId(req.params.id);
   const m = mid && db.prepare('SELECT * FROM matches WHERE id = ? AND (a_id = ? OR b_id = ?)').get(mid, req.user.id, req.user.id);
@@ -955,7 +1060,7 @@ admin.get('/users/:id', (req, res) => {
   if (!u) throw new HttpError(404, 'Usuário não encontrado.');
   const c = (sql) => db.prepare(sql).get(u.id).c;
   res.json({
-    user: { ...meJson(u), status: u.status, suspendReason: u.suspend_reason, createdAt: u.created_at, lastSeen: u.last_seen, demo: !!u.is_demo, role: u.role },
+    user: { ...meJson(u), cpfChecked: !!u.cpf_checked, status: u.status, suspendReason: u.suspend_reason, createdAt: u.created_at, lastSeen: u.last_seen, demo: !!u.is_demo, role: u.role },
     stats: {
       likesGiven: c("SELECT COUNT(*) c FROM swipes WHERE from_id = ? AND kind='like'"),
       likesReceived: c("SELECT COUNT(*) c FROM swipes WHERE to_id = ? AND kind='like'"),
@@ -1093,7 +1198,8 @@ app.get('/api/unsubscribe', (req, res) => {
   res.status(ok ? 200 : 400).type('html').send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Avisos por e-mail</title><body style="font-family:sans-serif;max-width:30rem;margin:3rem auto;padding:0 1rem"><h1>${ok ? 'Pronto!' : 'Link inválido'}</h1><p>${ok ? 'Você não receberá mais avisos por e-mail. Dá para reativar em Perfil, dentro do app.' : 'Este link não é válido. Entre no app e ajuste os avisos em Perfil.'}</p><p><a href="/">Voltar ao Pertinhos</a></p>`);
 });
 /* ---------- páginas de compartilhamento (prévia no WhatsApp e redes) ---------- */
-const INDEX_HTML = fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8');
+const PUB_DIR = fs.existsSync(path.join(__dirname, 'public-dist')) ? path.join(__dirname, 'public-dist') : path.join(__dirname, 'public'); // build minificado, se existir
+const INDEX_HTML = fs.readFileSync(path.join(PUB_DIR, 'index.html'), 'utf8');
 app.get(['/', '/index.html'], (req, res) => {
   res.set('Cache-Control', 'no-cache').type('html').send(INDEX_HTML.replaceAll('__BASE__', publicBase(req)));
 });
@@ -1114,7 +1220,7 @@ app.get('/e/:id', (req, res) => {
 <meta http-equiv="refresh" content="0;url=${dest}"><meta name="robots" content="noindex"></head><body><p><a href="${dest}">Abrir no Pertinhos</a></p></body></html>`);
 });
 app.use('/api', (req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
-app.use(express.static(path.join(__dirname, 'public'), { extensions: ['html'], maxAge: PROD ? '1h' : 0 }));
+app.use(express.static(PUB_DIR, { extensions: ['html'], maxAge: PROD ? '1h' : 0 }));
 
 app.use((err, req, res, next) => {
   if (res.headersSent) return next(err);

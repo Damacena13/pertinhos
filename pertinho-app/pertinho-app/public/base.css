@@ -243,3 +243,4 @@ footer .wrap{display:flex;gap:1rem 2rem;flex-wrap:wrap;justify-content:space-bet
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
 
 [hidden]{display:none!important}
+#radList li{justify-content:space-between}

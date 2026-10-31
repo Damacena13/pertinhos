@@ -11,7 +11,7 @@ const assert = require('assert');
 const PORT = 3992;
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'pertinho-extras-'));
-const env = { ...process.env, PORT: String(PORT), DATA_DIR, ADMIN_EMAIL: 'admin@teste.com', ADMIN_PASSWORD: 'SenhaAdmin#123', PAYMENTS_MODE: 'demo', DEMO_BOTS: '1', DEMO_AUTOLIKE: '1', NODE_ENV: 'test' };
+const env = { ...process.env, PORT: String(PORT), DATA_DIR, ADMIN_EMAIL: 'admin@teste.com', ADMIN_PASSWORD: 'SenhaAdmin#123', FREE_CHAT_MESSAGES: '3', PAYMENTS_MODE: 'demo', DEMO_BOTS: '1', DEMO_AUTOLIKE: '1', NODE_ENV: 'test' };
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const DAY = 86400000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -39,7 +39,7 @@ async function t(name, fn) {
   try { await fn(); passed++; console.log('  ok   ' + name); }
   catch (e) { failed++; console.log('  FALHOU ' + name + '\n         ' + String(e.message || e).split('\n')[0]); }
 }
-const { nextCpf, stopChild } = require('./test-util');
+const { nextCpf } = require('./test-util');
 const reg = (email, name, extra = {}) => ({ cpf: nextCpf(), email, password: 'senha-forte-123', name, birthDate: '1994-04-10', gender: 'f', seeking: 'all', cityId: 'sao-jose-do-rio-preto-sp', bio: 'Teste', terms: true, interests: ['Café', 'Trilhas'], ...extra });
 const photo = (field = 'photo') => { const f = new FormData(); f.append(field, new Blob([PNG], { type: 'image/png' }), 'x.png'); return f; };
 const dbq = () => new DatabaseSync(path.join(DATA_DIR, 'pertinho.db'));
@@ -63,7 +63,7 @@ const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(..
       assert.deepStrictEqual(r.cycles, [1, 3, 6]);
       assert.strictEqual(r.plans.find((p) => p.id === 'plus').prices['3'], 6990);
       assert.strictEqual(r.plans.find((p) => p.id === 'premium').prices['6'], 19950);
-      assert.deepStrictEqual(r.shop.map((x) => x.id).sort(), ['boost30m', 'pass24h', 'photos3']);
+      assert.deepStrictEqual(r.shop.map((x) => x.id).sort(), ['boost30m', 'boost90m', 'pass24h', 'photos10', 'photos3']);
       assert.strictEqual(r.freeChatMessages, 3);
       assert.strictEqual(r.plans.find((p) => p.id === 'premium').limits.maxRadius, 100);
     });
@@ -304,7 +304,7 @@ const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(..
       assert.strictEqual(fs.readdirSync(path.join(DATA_DIR, 'uploads')).filter((f) => f.startsWith('v_')).length, 0);
     });
   } catch (e) { failed++; console.log('ERRO GERAL', e.stack); }
-  finally { await stopChild(srv); }
+  finally { srv.kill(); }
 
   console.log('\nMigração de banco antigo');
   await (async () => {

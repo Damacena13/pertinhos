@@ -168,3 +168,18 @@ Com `RESEND_API_KEY`, `MAIL_FROM` e `PUBLIC_URL` definidos: aviso de novo match,
 
 ## Indicação exige selfie verificada
 Por padrão o prêmio da indicação só sai quando o indicado tem foto, e-mail confirmado (se ligado) **e selfie aprovada** no painel. Para desligar: `REFERRAL_REQUIRE_VERIFIED=0`.
+
+## Modelo de receita e chat livre
+O chat entre matches é ilimitado e grátis (mantém as pessoas ativas e convidando amigos). Compras avulsas, sem assinatura:
+- **Destaque 30 min** R$ 9,90 e **pacote de 3 Destaques (90 min)** R$ 24,90: o perfil aparece primeiro por perto.
+- **Passe 24h** R$ 6,90: por 24 horas manda a primeira mensagem para até 15 pessoas sem esperar match. A outra pessoa vê um "pedido de conversa": aceita respondendo (vira conversa normal) ou recusa (o pedido some e quem enviou não consegue mandar de novo). Quem enviou só pode mandar 1 mensagem até a resposta. Bloqueios valem.
+- **Fotos extras**: 3 desbloqueios R$ 7,90 ou 10 desbloqueios R$ 19,90 (para sempre, por perfil).
+Assinaturas (Plus/Premium) dão raio de 50/100 km, modo invisível, curtidas ilimitadas etc. Preços ficam em `lib.js` (SHOP e PLANS). Se definir `FREE_CHAT_MESSAGES=N`, o chat entre matches passa a ter N mensagens grátis por match (não recomendado neste modelo).
+
+## Conferência do CPF na base da Receita (idade oficial)
+Sem configuração, o cadastro só confere os dígitos do CPF. Para conferir nome e data de nascimento em base oficial, contrate um provedor de consulta de CPF (não existe consulta pública gratuita; exemplos: Serpro, Infosimples, BigDataCorp, Direct Data) e defina `CPF_LOOKUP_URL` (com `{cpf}` no lugar do número), `CPF_LOOKUP_TOKEN` e os nomes dos campos do JSON (`CPF_LOOKUP_NAME_FIELD`, `CPF_LOOKUP_BIRTH_FIELD`, `CPF_LOOKUP_STATUS_FIELD`). Veja `cpfcheck.js`. Com isso ligado: CPF inexistente, cancelado/nulo/de falecido é recusado; nome e nascimento digitados precisam bater (a mensagem não diz qual campo errou); quem é menor pela base oficial é barrado mesmo digitando outra data (fica no registro de auditoria só com os 2 últimos dígitos); a data salva é a oficial. Se o provedor cair, o cadastro espera (503); `CPF_LOOKUP_REQUIRED=0` libera só com a validação matemática. Os dados oficiais NÃO são mostrados na tela nem preenchidos no formulário: senão qualquer pessoa digitaria o CPF de um desconhecido e leria nome e nascimento dele. O formato exato do JSON de cada provedor não foi testado com serviço real, só com um provedor simulado.
+
+## Segurança reforçada e proteção contra cópia
+Já embutido: bloqueio de ferramentas de raspagem conhecidas na API (`BOT_BLOCK=0` desliga), limite por usuário de buscas/radar (`SCRAPE_LIMIT`, padrão 150 por 10 min) e de fotos (`PHOTO_LIMIT`, padrão 600 por 10 min), recusa de foto embutida em outros sites (hotlink), bloqueio de 15 min após 6 senhas erradas (por e-mail + IP), dados pessoais com `Cache-Control: no-store`, Permissions-Policy, CSP só com scripts do próprio site, CPF guardado só como resumo HMAC. Opcional: `ADMIN_ALLOWED_IPS=1.2.3.4,5.6.7.8` faz o painel ADM e o login de administrador só funcionarem desses IPs.
+No deploy (Dockerfile) o JavaScript é minificado/embaralhado (`npm run build` gera `public-dist`) e o código legível do site não vai na imagem.
+**Limite honesto:** tudo o que o navegador baixa (HTML, CSS, JavaScript) pode ser visto e copiado por quem quiser: nenhuma tecnologia impede isso. O que protege o negócio é (1) o servidor (banco, regras, pagamentos e e-mails) nunca ser entregue, (2) os dados das pessoas estarem protegidos por login e limites, (3) os Termos proibirem cópia e raspagem, e (4) a comunidade e a marca. Peça registro da marca no INPI.

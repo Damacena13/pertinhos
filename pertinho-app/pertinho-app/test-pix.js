@@ -44,9 +44,9 @@ async function until(fn, ms = 6000, label = 'condição') {
   const end = Date.now() + ms;
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error('tempo esgotado esperando: ' + label); await sleep(100); }
 }
-const { nextCpf, stopChild } = require('./test-util');
+const { nextCpf } = require('./test-util');
 const reg = (email, name) => ({ cpf: nextCpf(), email, password: 'senha-forte-123', name, birthDate: '1992-04-10', gender: 'f', seeking: 'all', cityId: 'campinas-sp', terms: true });
-const baseEnv = (extra = {}) => ({ ...process.env, PORT: String(PORT), DATA_DIR, NODE_ENV: 'test', ADMIN_EMAIL: 'admin@teste.com', ADMIN_PASSWORD: 'SenhaAdmin#123', PAYMENTS_MODE: 'asaas', ASAAS_API_KEY: KEY, ASAAS_WEBHOOK_TOKEN: TOKEN, ASAAS_ENV: 'sandbox', PIX_SWEEP_MS: '600', PIX_RETRY_MS: '300', PIX_RENEWAL_MS: '800', PIX_LIMIT_PER_HOUR: '500', ...extra });
+const baseEnv = (extra = {}) => ({ ...process.env, PORT: String(PORT), DATA_DIR, NODE_ENV: 'test', ADMIN_EMAIL: 'admin@teste.com', ADMIN_PASSWORD: 'SenhaAdmin#123', FREE_CHAT_MESSAGES: '3', PAYMENTS_MODE: 'asaas', ASAAS_API_KEY: KEY, ASAAS_WEBHOOK_TOKEN: TOKEN, ASAAS_ENV: 'sandbox', PIX_SWEEP_MS: '600', PIX_RETRY_MS: '300', PIX_RENEWAL_MS: '800', PIX_LIMIT_PER_HOUR: '500', ...extra });
 
 (async () => {
   const mock = createMock({ apiKey: KEY, webhookUrl: `${BASE}/api/webhooks/asaas`, webhookToken: TOKEN });
@@ -320,7 +320,7 @@ const baseEnv = (extra = {}) => ({ ...process.env, PORT: String(PORT), DATA_DIR,
       assert.strictEqual(one('SELECT COUNT(*) c FROM payments WHERE user_id IS NOT NULL').c, 0);
     });
   } catch (e) { failed++; console.log('ERRO GERAL', e.stack); }
-  finally { await stopChild(srv); await mock.close(); }
+  finally { srv.kill(); await mock.close(); }
 
   console.log('\nConfiguração na inicialização');
   const boot = (extra) => spawnSync('node', ['server.js'], { env: baseEnv({ DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'pertinho-cfg-')), PORT: '3994', ...extra }), encoding: 'utf8', timeout: 8000 });

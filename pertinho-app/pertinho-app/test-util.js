@@ -9,11 +9,4 @@ function nextCpf() {
   }
   return d.join('');
 }
-async function stopChild(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise((resolve) => {
-    child.once('close', resolve);
-    child.kill();
-  });
-}
-module.exports = { nextCpf, stopChild };
+module.exports = { nextCpf };

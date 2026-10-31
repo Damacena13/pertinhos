@@ -88,9 +88,11 @@ const CYCLE_MONTHS = [1, 3, 6];
 const priceOf = (plan, months) => (PLAN_PRICES[plan] && PLAN_PRICES[plan][months]) || null;
 // Compras avulsas, sem assinatura.
 const SHOP = {
-  pass24h: { id: 'pass24h', name: 'Passe 24h de conversa', priceCents: 690, desc: 'Mensagens sem limite com todos os seus matches por 24 horas.' },
+  pass24h: { id: 'pass24h', name: 'Passe 24h de conversa', priceCents: 690, desc: 'Por 24 horas, mande mensagem para até 15 pessoas sem esperar match.' },
   boost30m: { id: 'boost30m', name: 'Destaque por 30 minutos', priceCents: 990, desc: 'Seu perfil aparece primeiro para quem está por perto durante 30 minutos.' },
+  boost90m: { id: 'boost90m', name: 'Pacote de 3 Destaques (90 minutos)', priceCents: 2490, desc: 'Três Destaques de 30 minutos somados: seu perfil aparece primeiro por 90 minutos.' },
   photos3: { id: 'photos3', name: 'Pacote de 3 desbloqueios de fotos', priceCents: 790, desc: 'Libera as fotos extras de 3 perfis, para sempre, sem assinar um plano.' },
+  photos10: { id: 'photos10', name: 'Pacote de 10 desbloqueios de fotos', priceCents: 1990, desc: 'Libera as fotos extras de 10 perfis, para sempre. Sai mais barato por perfil.' },
 };
 const FREE_CHAT_MESSAGES = Number.isFinite(Number(process.env.FREE_CHAT_MESSAGES)) && process.env.FREE_CHAT_MESSAGES !== '' ? Math.max(0, Math.floor(Number(process.env.FREE_CHAT_MESSAGES))) : 3;
 function effectivePlan(u, now = Date.now()) {
@@ -98,10 +100,13 @@ function effectivePlan(u, now = Date.now()) {
   return 'free';
 }
 // Conversa liberada: plano pago ou Passe 24h ativo.
-const chatUnlocked = (u, now = Date.now()) => effectivePlan(u, now) !== 'free' || !!(u.pass_until && u.pass_until > now);
+// Por padrão o chat entre matches é livre. Só limita se FREE_CHAT_MESSAGES estiver definido no ambiente.
+const CHAT_LIMITED = process.env.FREE_CHAT_MESSAGES !== undefined && process.env.FREE_CHAT_MESSAGES !== '';
+const chatUnlocked = (u, now = Date.now()) => !CHAT_LIMITED || effectivePlan(u, now) !== 'free' || !!(u.pass_until && u.pass_until > now);
 const ONLINE_MS = 5 * 60 * 1000;
 // Perfis de demonstração não têm ninguém por trás: parte deles aparece sempre como "online" só para o teste ficar completo.
 const isOnline = (u, now = Date.now()) => (u.is_demo ? hash32(u.id) % 3 === 0 : !!(u.last_seen && now - u.last_seen < ONLINE_MS));
+const passActive = (u, now = Date.now()) => !!(u.pass_until && u.pass_until > now);
 const boostActive = (u, now = Date.now()) => !!(u.boost_until && u.boost_until > now);
 
 // Sintonia de 0 a 100: interesses em comum (até 60), proximidade (até 25) e idade parecida (até 15).
@@ -176,5 +181,5 @@ module.exports = {
   validCpfCnpj, validCpf, cpfHash,
   hashPassword, verifyPassword, DUMMY_HASH, newToken, sha256,
   parseBirth, ageFrom, birthLimit, haversine, snap, cityPoint, distanceText, hash32,
-  PLANS, PLAN_PRICES, CYCLE_MONTHS, priceOf, SHOP, FREE_CHAT_MESSAGES, chatUnlocked, isOnline, boostActive, affinity, effectivePlan, clean, EMAIL_RE, cleanInterests, imageKind,
+  PLANS, PLAN_PRICES, CYCLE_MONTHS, priceOf, SHOP, FREE_CHAT_MESSAGES, CHAT_LIMITED, chatUnlocked, passActive, isOnline, boostActive, affinity, effectivePlan, clean, EMAIL_RE, cleanInterests, imageKind,
 };

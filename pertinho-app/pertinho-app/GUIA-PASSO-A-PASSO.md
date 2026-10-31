@@ -68,11 +68,24 @@ fly secrets set RESEND_API_KEY="re_..." MAIL_FROM="Pertinhos <contato@seudominio
 ```
 O Fly reinicia sozinho. A partir daí: novas contas precisam confirmar o e-mail antes de curtir e conversar (contas antigas continuam liberadas), a recuperação de senha chega por e-mail, e os avisos (match, mensagem, lembrete de encontro) passam a ser enviados. Sem domínio verificado o Resend só entrega para o seu próprio e-mail.
 
+## Parte 8b. Conferir CPF na Receita e barrar menores (opcional, recomendado)
+Contrate um provedor de consulta de CPF (cobra por consulta) e informe:
+```
+fly secrets set CPF_LOOKUP_URL="https://api.provedor.com/cpf/{cpf}" CPF_LOOKUP_TOKEN="..." CPF_LOOKUP_NAME_FIELD="nome" CPF_LOOKUP_BIRTH_FIELD="nascimento"
+```
+Ajuste os nomes dos campos conforme o JSON do provedor. Teste com seu próprio CPF e com um CPF fictício antes de abrir.
+
 ## Parte 9. Domínio próprio e HTTPS
 1. `fly certs add seudominio.com` e `fly certs add www.seudominio.com`
 2. `fly ips list` mostra os endereços (IPv4 e IPv6). No DNS do domínio crie registros A (IPv4) e AAAA (IPv6) apontando para eles. O comando `fly certs show seudominio.com` diz o que falta.
 3. Quando o certificado ficar emitido: `fly secrets set PUBLIC_URL="https://seudominio.com"`
 4. Opcional: Cloudflare grátis na frente (proteção contra ataques). Se usar, deixe o proxy laranja só depois do certificado do Fly estar emitido e use o modo SSL "Full (strict)".
+
+## Parte 9b. Proteção extra do painel e do site
+- Se você acessa o painel sempre de lugares fixos: `fly secrets set ADMIN_ALLOWED_IPS="SEU.IP.AQUI"` (separe vários por vírgula). Pelo celular o IP muda, então só use se tiver IP fixo.
+- Use no Cloudflare: Bot Fight Mode ligado, regras de limite de requisições e "Under Attack" se houver ataque.
+- Guarde o CPF_PEPPER e a senha do ADM num gerenciador de senhas e ative verificação em duas etapas nas contas do Fly, Resend, Asaas e do domínio.
+- Registre a marca "Pertinhos" no INPI.
 
 ## Parte 10. Pix (Asaas) só quando tudo estiver testado
 1. Crie a conta no Asaas, gere a chave de API do SANDBOX.

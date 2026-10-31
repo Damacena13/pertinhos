@@ -47,7 +47,7 @@ async function waitUp() {
   throw new Error('Servidor não subiu');
 }
 
-const { nextCpf, stopChild } = require('./test-util');
+const { nextCpf } = require('./test-util');
 const reg = (email, extra = {}) => ({ cpf: nextCpf(), email, password: 'senha-forte-123', name: 'Teste', birthDate: '1995-05-20', gender: 'f', seeking: 'all', cityId: 'sao-jose-do-rio-preto-sp', bio: 'Bio de teste', terms: true, interests: ['Café', 'Livros'], ...extra });
 function photoForm(buf = PNG, name = 'x.png', type = 'image/png') {
   const f = new FormData(); f.append('photo', new Blob([buf], { type }), name); return f;
@@ -317,7 +317,7 @@ function photoForm(buf = PNG, name = 'x.png', type = 'image/png') {
   } catch (e) {
     failed++; console.log('ERRO GERAL', e.message);
   } finally {
-    await stopChild(srv);
+    srv.kill();
     fs.rmSync(DATA_DIR, { recursive: true, force: true });
   }
   console.log(`\n${passed} passaram, ${failed} falharam`);

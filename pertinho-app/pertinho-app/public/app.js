@@ -45,6 +45,7 @@ function fail(e) {
   if (e && e.status === 402) {
     const code = e.data && e.data.code;
     if (code === 'trial_over') return paywall(e.message, [shopAction('pass24h', ''), { label: 'Ver os planos', cls: 'ghost', run: () => setTab('planos') }].filter(Boolean));
+    if (code === 'need_pass') return paywall(e.message, [shopAction('pass24h', '')].filter(Boolean));
     if (code === 'no_credits') return paywall(e.message, [shopAction('photos3', '')].filter(Boolean));
     return paywall(e.message);
   }
@@ -89,10 +90,14 @@ $('#themeBtn').onclick = () => {
 };
 
 /* ---------- cidades ---------- */
-function cityOptions(selected) {
-  const by = {};
-  S.cities.forEach((c) => { (by[c.uf] = by[c.uf] || []).push(c); });
-  return Object.keys(by).sort().map((uf) => `<optgroup label="${uf}">${by[uf].map((c) => `<option value="${esc(c.id)}"${c.id === selected ? ' selected' : ''}>${esc(c.name)} - ${uf}</option>`).join('')}</optgroup>`).join('');
+S.ufs = {};
+const ufOptions = (sel) => Object.keys(S.ufs).sort((x, y) => S.ufs[x].localeCompare(S.ufs[y], 'pt-BR')).map((k) => `<option value="${k}"${k === sel ? ' selected' : ''}>${esc(S.ufs[k])} (${k})</option>`).join('');
+const cityOptions = (uf, selected) => S.cities.filter((c) => c.uf === uf).map((c) => `<option value="${esc(c.id)}"${c.id === selected ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
+// Liga o par estado/cidade: trocar o estado recarrega as cidades dele.
+function wireCity(ufSel, citySel, cityId) {
+  const c = S.cities.find((x) => x.id === cityId) || S.cities.find((x) => x.id === 'sao-jose-do-rio-preto-sp') || S.cities[0];
+  ufSel.innerHTML = ufOptions(c.uf); citySel.innerHTML = cityOptions(c.uf, c.id);
+  ufSel.onchange = () => { citySel.innerHTML = cityOptions(ufSel.value, null); };
 }
 
 /* ---------- visitante: radar e planos ---------- */
@@ -292,7 +297,7 @@ function setTab(t) {
   ['descobrir', 'mapa', 'matches', 'encontros', 'jogos', 'seguranca', 'perfil', 'planos'].forEach((n) => { $('#p-' + n).hidden = n !== t; });
   $('#filters').style.display = (t === 'descobrir' || t === 'mapa') ? '' : 'none';
   if (t === 'descobrir') loadDeck();
-  if (t === 'mapa') { loadDeck().then(renderMap); loadRings(); renderSpots(); }
+  if (t === 'mapa') { loadDeck().then(renderMap); loadRings(); renderSpots(); loadRadar(); }
   if (t === 'matches') loadMatches(true);
   if (t === 'perfil') renderProfile();
   if (t === 'planos') renderPlansTab();
@@ -363,7 +368,7 @@ function renderDeck() {
     bindDrag(deck.querySelector('.card:not(.back)'));
     bindGal(deck);
   }
-  $('#bPass').disabled = $('#bLike').disabled = !list.length;
+  $('#bPass').disabled = $('#bLike').disabled = $('#bMsg').disabled = !list.length;
   const left = meta.likesLeft;
   $('#deckNote').textContent = left == null ? 'Arraste o cartão para a direita para curtir e para a esquerda para passar.' : `Arraste para curtir ou passar. Você tem ${left} curtida${left === 1 ? '' : 's'} nas próximas 24 horas.`;
 }
@@ -409,6 +414,21 @@ async function act(kind, profile) {
   } finally { acting = false; }
 }
 $('#bPass').onclick = () => act('pass');
+let dmTarget = null;
+$('#bMsg').onclick = () => {
+  const p = S.deck[0]; if (!p) return;
+  if (!S.user.passUntil) return fail({ status: 402, data: { code: 'need_pass' }, message: 'Para mandar mensagem antes do match, ative o Passe 24h.' });
+  dmTarget = p; $('#dmTitle').textContent = 'Mensagem para ' + p.name; $('#dmBody').value = ''; $('#dmErr').textContent = ''; openModal('directModal');
+};
+$('#dmCancel').onclick = () => closeModal('directModal');
+$('#dmSend').onclick = async () => {
+  const body = $('#dmBody').value.trim(); if (!body || !dmTarget) { $('#dmErr').textContent = 'Escreva uma mensagem.'; return; }
+  try {
+    const r = await api('POST', `/api/users/${dmTarget.id}/direct`, { body });
+    closeModal('directModal'); toast(r.existing ? 'Vocês já têm uma conversa.' : 'Pedido de conversa enviado!');
+    S.activeMatch = r.matchId; setTab('matches');
+  } catch (e) { if (e.status === 402) { closeModal('directModal'); fail(e); } else $('#dmErr').textContent = e.message; }
+};
 $('#bLike').onclick = () => act('like');
 document.addEventListener('keydown', (e) => {
   if (!S.user || S.tab !== 'descobrir' || anyModal()) return;
@@ -481,6 +501,25 @@ async function loadRings() {
 }
 const PLACES = [['Café', 'cafés'], ['Praça', 'praças'], ['Parque', 'parques'], ['Livraria', 'livrarias com café'], ['Sorveteria', 'sorveterias'], ['Shopping (praça de alimentação)', 'shoppings']];
 const mapsUrl = (q) => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q + ' em ' + (S.user.cityName && S.user.cityName !== 'Localização por GPS' ? S.user.cityName : 'perto de mim'));
+let radarInit = false;
+async function loadRadar() {
+  const sel = $('#radUf'), list = $('#radList'); if (!sel) return;
+  const draw = async () => {
+    try {
+      const r = await api('GET', '/api/radar?uf=' + sel.value);
+      list.innerHTML = r.cities.length ? r.cities.map((c) => `<li><span>${esc(c.name)}</span><strong>${c.n}</strong></li>`).join('') : `<li class="note">Ninguém em ${esc(r.name)} ainda. Convide amigos!</li>`;
+    } catch (e) { list.innerHTML = ''; }
+  };
+  if (!radarInit) {
+    try {
+      const r = await api('GET', '/api/radar');
+      const mine = (S.user.cityId || '').slice(-2).toUpperCase();
+      sel.innerHTML = r.states.map((s) => `<option value="${s.uf}"${s.uf === mine ? ' selected' : ''}>${esc(s.name)} (${s.uf}) · ${s.n}</option>`).join('');
+      sel.onchange = draw; radarInit = true;
+    } catch (e) { return; }
+  }
+  draw();
+}
 function renderSpots() {
   $('#spotNote').textContent = 'Escolha um lugar movimentado e de fácil acesso. O Google Maps abre em outra aba, com as opções perto de ' + (S.user.cityName || 'você') + '. Confira o horário de funcionamento antes de sair.';
   $('#spotLinks').innerHTML = PLACES.map(([n, q]) => `<a class="btn ghost small" href="${esc(mapsUrl(q))}" target="_blank" rel="noopener noreferrer">${esc(n.split(' ')[0])}</a>`).join('');
@@ -511,13 +550,13 @@ async function loadMatches(openFirst) {
 function renderConvs() {
   const ul = $('#convs');
   if (!S.matches.length) { ul.innerHTML = '<li class="note">Seus matches aparecem aqui. Curta pessoas na aba Descobrir.</li>'; return; }
-  ul.innerHTML = S.matches.map((m) => `<li><button class="conv" type="button" data-id="${m.id}" aria-current="${S.activeMatch === m.id}">${avatarHtml(m.user)}<span class="grow"><strong>${esc(m.user.name)}</strong>${m.unread ? ` <span class="badge" style="margin:0">${m.unread}</span>` : ''}<small>${esc(m.last || 'Diga oi!')}</small></span></button></li>`).join('');
+  ul.innerHTML = S.matches.map((m) => `<li><button class="conv" type="button" data-id="${m.id}" aria-current="${S.activeMatch === m.id}">${avatarHtml(m.user)}<span class="grow"><strong>${esc(m.user.name)}</strong>${m.request === 'received' ? ' <span class="chip pink">Pedido</span>' : ''}${m.unread ? ` <span class="badge" style="margin:0">${m.unread}</span>` : ''}<small>${esc(m.last || 'Diga oi!')}</small></span></button></li>`).join('');
   ul.querySelectorAll('.conv').forEach((b) => { b.onclick = () => { S.activeMatch = Number(b.dataset.id); renderConvs(); loadThread(S.activeMatch); }; });
 }
 async function loadThread(id) {
   try {
     const r = await api('GET', `/api/matches/${id}/messages`);
-    S.thread = { id, other: r.other, messages: r.messages }; S.lastMsgId = r.messages.length ? r.messages[r.messages.length - 1].id : 0;
+    S.thread = { id, other: r.other, messages: r.messages, request: r.request }; S.lastMsgId = r.messages.length ? r.messages[r.messages.length - 1].id : 0;
     renderThread(); loadMatches(false);
   } catch (e) { S.activeMatch = null; S.thread = null; renderThread(); if (e.status !== 401) toast(e.message); }
 }
@@ -539,18 +578,21 @@ function renderThread() {
   th.innerHTML = `<div class="thead">${avatarHtml(o)}<div style="min-width:0"><strong>${esc(o.name)}, ${o.age}</strong><div class="note">${esc(o.distanceText || '')}</div></div>
     <div class="menu" style="margin-left:auto"><button class="btn ghost small" type="button" id="thMenuBtn" aria-haspopup="true" aria-expanded="false">Opções</button>
     <div class="menu-list" id="thMenu" hidden><button type="button" data-a="place">Sugerir encontro</button><button type="button" data-a="unmatch">Desfazer match</button><button type="button" data-a="report" class="danger">Denunciar</button><button type="button" data-a="block" class="danger">Bloquear</button></div></div></div>
+    ${S.thread.request === 'received' ? `<div class="banner" id="reqBar" style="margin:.5rem"><span>${esc(o.name)} quer conversar. Responda para aceitar.</span> <button class="btn ghost small" id="reqNo" type="button">Recusar</button></div>` : S.thread.request === 'sent' ? '<p class="note" style="margin:.5rem">Pedido enviado. Você pode mandar outra mensagem quando a pessoa responder.</p>' : ''}
     <div class="msgs" id="msgs">${S.thread.messages.map(msgHtml).join('') || '<p class="note" style="text-align:center">Vocês deram match. Diga oi!</p>'}</div>
     <div class="suggest" id="suggest" hidden><span class="note" style="width:100%">Escolha o tipo de local público:</span>${PLACES.map(([n]) => `<button type="button" class="chip teal" data-place="${esc(n)}" style="border:0;cursor:pointer">${esc(n)}</button>`).join('')}</div>
     <form class="composer" id="cForm"><label for="cIn" class="sr" style="position:absolute;left:-9999px">Mensagem</label><input type="text" id="cIn" placeholder="Escreva uma mensagem" autocomplete="off" maxlength="1000"><button class="btn small" type="submit">Enviar</button></form>`;
   const box = $('#msgs'); box.scrollTop = box.scrollHeight;
   $('#cForm').onsubmit = async (e) => { e.preventDefault(); const v = $('#cIn').value.trim(); if (!v) return; if (window.PP && PP.guardMsg && !(await PP.guardMsg(v))) return; $('#cIn').value = ''; await sendMsg({ body: v }); };
+  const rn = $('#reqNo');
+  if (rn) rn.onclick = async () => { try { await api('POST', `/api/matches/${S.activeMatch}/decline`); afterRemoved('Pedido recusado.'); } catch (e) { fail(e); } };
   const mb = $('#thMenuBtn'), ml = $('#thMenu');
   mb.onclick = () => { ml.hidden = !ml.hidden; mb.setAttribute('aria-expanded', String(!ml.hidden)); };
   ml.querySelectorAll('button').forEach((b) => { b.onclick = () => { ml.hidden = true; threadAction(b.dataset.a); }; });
   th.querySelectorAll('[data-place]').forEach((b) => { b.onclick = async () => { $('#suggest').hidden = true; await sendMsg({ kind: 'place', body: b.dataset.place }); }; });
 }
 async function sendMsg(payload) {
-  try { await api('POST', `/api/matches/${S.activeMatch}/messages`, payload); if (window.PP && PP.mission) PP.mission('msg'); await pollThread(); } catch (e) { fail(e); }
+  try { await api('POST', `/api/matches/${S.activeMatch}/messages`, payload); if (S.thread && S.thread.request === 'received') { S.thread.request = null; const rb = $('#reqBar'); if (rb) rb.remove(); } if (window.PP && PP.mission) PP.mission('msg'); await pollThread(); } catch (e) { fail(e); }
 }
 async function pollThread() {
   if (!S.user || S.tab !== 'matches' || !S.activeMatch || !S.thread || document.hidden) return;
@@ -619,7 +661,8 @@ function renderProfile() {
 
       <h3 style="margin-top:1rem">Localização</h3>
       <p class="note">Guardamos sua posição de forma aproximada e só mostramos distâncias arredondadas. Hoje: <strong>${esc(u.cityName || 'não definida')}</strong>${u.locSource === 'gps' ? ' (por GPS)' : ''}.</p>
-      <div class="field"><label for="pCity">Cidade</label><select id="pCity">${cityOptions(u.cityId)}</select></div>
+      <div class="field"><label for="pUf">Estado</label><select id="pUf"></select></div>
+      <div class="field"><label for="pCity">Cidade</label><select id="pCity"></select></div>
       <div style="display:flex;gap:.6rem;flex-wrap:wrap"><button class="btn ghost" id="pCitySave" type="button">Usar esta cidade</button><button class="btn ghost" id="pGps" type="button">Usar minha localização</button></div>
     </div>
 
@@ -642,6 +685,7 @@ function renderProfile() {
     </div>
   </div>`;
   $('#pGender').value = u.gender; $('#pSeek').value = u.seeking;
+  wireCity($('#pUf'), $('#pCity'), u.cityId);
   loadRefPanel();
   $('#pSave').onclick = async () => {
     $('#pErr').textContent = '';
@@ -785,7 +829,7 @@ async function init() {
   heroRadar(); bindAuthOpeners(); bindPix();
   if (confirmToken) { try { await api('POST', '/api/auth/confirm', { token: confirmToken }); toast('E-mail confirmado! Agora você já pode curtir e conversar.'); } catch (e) { toast(e.message); } }
   if (resetToken) { $('#rsMsg').textContent = ''; setAuthMode('reset'); openModal('authModal'); }
-  try { S.cities = await api('GET', '/api/cities'); $('#rCity').innerHTML = cityOptions('sao-jose-do-rio-preto-sp'); } catch (e) { /* segue */ }
+  try { const r = await api('GET', '/api/cities'); S.ufs = r.ufs; S.cities = r.cities.map(([id, name, uf]) => ({ id, name, uf })); wireCity($('#rUf'), $('#rCity'), 'sao-jose-do-rio-preto-sp'); } catch (e) { /* segue */ }
   try { S.plans = await api('GET', '/api/plans'); renderPublicPlans(); } catch (e) { /* segue */ }
   try {
     const r = await api('GET', '/api/me');

@@ -40,7 +40,7 @@ async function t(name, fn) {
   try { await fn(); passed++; console.log('  ok   ' + name); }
   catch (e) { failed++; console.log('  FALHOU ' + name + '\n         ' + String(e.message || e).split('\n')[0]); }
 }
-const { nextCpf, stopChild } = require('./test-util');
+const { nextCpf } = require('./test-util');
 const reg = (email, name, extra = {}) => ({ cpf: nextCpf(), email, password: 'senha-forte-123', name, birthDate: '1994-04-10', gender: 'f', seeking: 'all', cityId: 'sao-jose-do-rio-preto-sp', bio: 'Teste', terms: true, interests: ['Café', 'Trilhas'], ...extra });
 const photo = (field = 'photo') => { const f = new FormData(); f.append(field, new Blob([PNG], { type: 'image/png' }), 'x.png'); return f; };
 const dbq = () => new DatabaseSync(path.join(DATA_DIR, 'pertinho.db'));
@@ -77,6 +77,10 @@ const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(..
       assert.strictEqual(to('bob@teste.com', /mandou uma mensagem/).length, 1, 'segunda mensagem não deve gerar outro e-mail');
       assert.ok(!to('bob@teste.com', /mandou uma mensagem/)[0].body.text.includes('Oi!'), 'e-mail não pode vazar o conteúdo da mensagem');
     });
+    await t('chat entre matches é livre (sem limite de mensagens grátis) ', async () => {
+      for (let i = 0; i < 6; i++) assert.strictEqual((await A.post(`/api/matches/${matchId}/messages`, { body: 'msg ' + i })).status, 201);
+      assert.strictEqual((await A.get('/api/me')).data.user.chatUnlocked, true);
+    });
     await t('quem está online não recebe e-mail de mensagem', async () => {
       run('DELETE FROM notif_log WHERE key LIKE ?', 'msg:%'); const before = mails.length;
       await B.get('/api/me'); await A.post(`/api/matches/${matchId}/messages`, { body: 'Você está aí?' }); await sleep(400);
@@ -111,7 +115,8 @@ const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(..
       assert.ok(sent[0].text.includes('Cinema em grupo') && !sent[0].text.includes('Shopping X'), 'lembrete não revela o local exato');
     });
   } catch (e) { failed++; console.log('ERRO GERAL', e.message); }
-  await stopChild(srv); mailSrv.close();
+  srv.kill(); mailSrv.close();
+  await sleep(300);
   fs.rmSync(DATA_DIR, { recursive: true, force: true });
   console.log(`\n${passed} passaram, ${failed} falharam`);
   if (failed && process.env.SHOW_LOG) console.log('--- log do servidor ---\n' + srvLog);

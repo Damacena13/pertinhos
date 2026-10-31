@@ -215,6 +215,7 @@ for (const [col, ddl] of [
   ['referred_by', 'ALTER TABLE users ADD COLUMN referred_by INTEGER'],
   ['cpf_hash', 'ALTER TABLE users ADD COLUMN cpf_hash TEXT'],
   ['cpf_last2', 'ALTER TABLE users ADD COLUMN cpf_last2 TEXT'],
+  ['cpf_checked', 'ALTER TABLE users ADD COLUMN cpf_checked INTEGER NOT NULL DEFAULT 0'],
 ]) if (!userCols.includes(col)) db.exec(ddl);
 // Um CPF só pode ter uma conta. O índice parcial ignora contas sem CPF (administrador e perfis de demonstração).
 db.exec(`
@@ -299,6 +300,9 @@ CREATE TABLE IF NOT EXISTS notif_log (
   created_at INTEGER NOT NULL
 );
 `);
+const matchCols = db.prepare('PRAGMA table_info(matches)').all().map((c) => c.name);
+if (!matchCols.includes('direct_by')) db.exec('ALTER TABLE matches ADD COLUMN direct_by INTEGER'); // pedido de conversa feito com o Passe 24h
+if (!matchCols.includes('accepted_at')) db.exec('ALTER TABLE matches ADD COLUMN accepted_at INTEGER');
 if (!userCols.includes('notify_email')) db.exec('ALTER TABLE users ADD COLUMN notify_email INTEGER NOT NULL DEFAULT 1');
 if (!userCols.includes('last_seen')) db.exec('ALTER TABLE users ADD COLUMN last_seen INTEGER');
 

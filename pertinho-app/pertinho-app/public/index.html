@@ -147,6 +147,7 @@
                 <button class="rbtn undo" id="bUndo" type="button" aria-label="Desfazer a última escolha" title="Desfazer (Z)"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/></svg></button>
                 <button class="rbtn" id="bPass" type="button" aria-label="Passar" title="Passar (seta para a esquerda)"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
                 <button class="rbtn super" id="bSuper" type="button" aria-label="Super Curtida" title="Super Curtida (seta para cima)"><svg viewBox="0 0 24 24" style="fill:currentColor;stroke-width:1.5"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg><span class="cnt" id="superCnt"></span></button>
+                <button class="rbtn" id="bMsg" type="button" aria-label="Mandar mensagem sem esperar match (Passe 24h)" title="Mandar mensagem (Passe 24h)"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg></button>
                 <button class="rbtn like" id="bLike" type="button" aria-label="Curtir" title="Curtir (seta para a direita)"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.6-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.4-7 10-7 10z"/></svg></button>
               </div>
               <p class="note" id="deckNote" style="text-align:center;margin-top:.8rem"></p>
@@ -173,6 +174,10 @@
               <div class="sel" id="selBox"><p class="note">Toque em uma pessoa no mapa para ver os detalhes.</p></div>
               <h3 style="margin-top:1.4rem">Quantas pessoas por raio</h3>
               <ul class="spots" id="ringList"></ul>
+              <h3 style="margin-top:1.4rem">Radar do Brasil</h3>
+              <p class="note">Quantas pessoas há em cada estado e cidade. Só números, nunca perfis.</p>
+              <div class="field"><label for="radUf">Estado</label><select id="radUf"></select></div>
+              <ul class="spots" id="radList" aria-live="polite"></ul>
               <h3 style="margin-top:1.4rem">Locais públicos para o primeiro encontro</h3>
               <p class="note" id="spotNote"></p>
               <div class="spotlinks" id="spotLinks"></div>
@@ -289,7 +294,8 @@
       <div class="field full"><label for="rPass">Senha</label><input type="password" id="rPass" autocomplete="new-password" maxlength="200" style="font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:.55rem .75rem;width:100%"><span class="hint">Mínimo de 8 caracteres.</span></div>
       <div class="field"><label for="rGender">Eu sou</label><select id="rGender"><option value="f">Mulher</option><option value="m">Homem</option><option value="o">Outro</option></select></div>
       <div class="field"><label for="rSeeking">Quero conhecer</label><select id="rSeeking"><option value="all">Todos</option><option value="f">Mulheres</option><option value="m">Homens</option></select></div>
-      <div class="field full"><label for="rCity">Cidade</label><select id="rCity"></select></div>
+      <div class="field"><label for="rUf">Estado</label><select id="rUf"></select></div>
+      <div class="field"><label for="rCity">Cidade</label><select id="rCity"></select></div>
       <div class="field full"><label for="rBio">Sobre você</label><textarea id="rBio" maxlength="200" placeholder="Em uma ou duas frases"></textarea></div>
       <label class="check full"><input type="checkbox" id="rTerms"> Tenho 18 anos ou mais e aceito os <a href="/termos.html" target="_blank" rel="noopener">termos de uso</a> e a <a href="/privacidade.html" target="_blank" rel="noopener">política de privacidade</a>.</label>
       <p class="formerr full" id="rErr" role="alert"></p>
@@ -388,6 +394,16 @@
     <label class="check"><input type="checkbox" id="repBlock" checked> Bloquear esta pessoa também</label>
     <p class="formerr" id="repErr" role="alert"></p>
     <div style="display:flex;gap:.6rem;flex-wrap:wrap"><button class="btn" id="repSend" type="button">Enviar denúncia</button><button class="btn ghost" id="repCancel" type="button">Cancelar</button></div>
+  </div>
+</div>
+
+<div class="modal" id="directModal" role="dialog" aria-modal="true" aria-labelledby="dmTitle" hidden>
+  <div class="mbox wide">
+    <h2 id="dmTitle">Mandar mensagem</h2>
+    <p class="note" id="dmNote">Com o Passe 24h você manda a primeira mensagem sem esperar match. A pessoa vê como pedido de conversa e pode aceitar (respondendo) ou recusar.</p>
+    <div class="field"><label for="dmBody">Sua mensagem</label><textarea id="dmBody" maxlength="500" placeholder="Seja gentil e fale algo do perfil da pessoa"></textarea></div>
+    <p class="formerr" id="dmErr" role="alert"></p>
+    <div style="display:flex;gap:.6rem;flex-wrap:wrap"><button class="btn" id="dmSend" type="button">Enviar</button><button class="btn ghost" id="dmCancel" type="button">Cancelar</button></div>
   </div>
 </div>
 
