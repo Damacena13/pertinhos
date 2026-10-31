@@ -79,11 +79,11 @@ function distanceText(km) {
 /* ---------- planos e loja ---------- */
 const PLANS = {
   free: { id: 'free', name: 'Grátis', priceCents: 0, maxRadius: 10, dailyLikes: 30, superPerDay: 1, rewind: false, extraPhotos: false, seeLikes: false, verifiedFilter: false, invisible: false, boost: false },
-  plus: { id: 'plus', name: 'Plus', priceCents: 2990, maxRadius: 50, dailyLikes: Infinity, superPerDay: 5, rewind: true, extraPhotos: true, seeLikes: true, verifiedFilter: true, invisible: false, boost: false },
-  premium: { id: 'premium', name: 'Premium', priceCents: 4990, maxRadius: 100, dailyLikes: Infinity, superPerDay: 10, rewind: true, extraPhotos: true, seeLikes: true, verifiedFilter: true, invisible: true, boost: true },
+  plus: { id: 'plus', name: 'Plus', priceCents: 1990, maxRadius: 50, dailyLikes: Infinity, superPerDay: 5, rewind: true, extraPhotos: true, seeLikes: true, verifiedFilter: true, invisible: false, boost: false },
+  premium: { id: 'premium', name: 'Premium', priceCents: 3490, maxRadius: 100, dailyLikes: Infinity, superPerDay: 10, rewind: true, extraPhotos: true, seeLikes: true, verifiedFilter: true, invisible: true, boost: true },
 };
-// Valor total de cada ciclo, em centavos. Quem paga trimestral ou semestral ganha desconto.
-const PLAN_PRICES = { plus: { 1: 2990, 3: 6990, 6: 11990 }, premium: { 1: 4990, 3: 11670, 6: 19950 } };
+// Valores totais dos ciclos em centavos, com os descontos proporcionais mantidos.
+const PLAN_PRICES = { plus: { 1: 1990, 3: 4652, 6: 7980 }, premium: { 1: 3490, 3: 8162, 6: 13953 } };
 const CYCLE_MONTHS = [1, 3, 6];
 const priceOf = (plan, months) => (PLAN_PRICES[plan] && PLAN_PRICES[plan][months]) || null;
 // Compras avulsas, sem assinatura.

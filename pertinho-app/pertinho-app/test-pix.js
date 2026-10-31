@@ -86,7 +86,7 @@ const baseEnv = (extra = {}) => ({ ...process.env, PORT: String(PORT), DATA_DIR,
       const r = await A.post('/api/billing/pix', { plan: 'plus', cpfCnpj: '529.982.247-25', fullName: 'Ana Maria Souza' });
       assert.strictEqual(r.status, 201, JSON.stringify(r.data));
       payA = r.data.payment;
-      assert.strictEqual(payA.status, 'pending'); assert.strictEqual(payA.amountCents, 2990);
+      assert.strictEqual(payA.status, 'pending'); assert.strictEqual(payA.amountCents, 1990);
       assert.match(payA.payload, /^0002/); assert.match(payA.image, /^[A-Za-z0-9+/=]+$/);
       assert.ok(payA.expiresAt > Date.now() + 20 * 3600000);
     });
@@ -95,7 +95,7 @@ const baseEnv = (extra = {}) => ({ ...process.env, PORT: String(PORT), DATA_DIR,
       const pay = mock.state.requests.find((x) => x.path === '/v3/payments' && x.method === 'POST');
       assert.strictEqual(cust.headers.access_token, KEY); assert.match(cust.headers['user-agent'], /^Pertinho/);
       assert.strictEqual(cust.body.cpfCnpj, CPF); assert.strictEqual(cust.body.name, 'Ana Maria Souza');
-      assert.strictEqual(pay.body.billingType, 'PIX'); assert.strictEqual(pay.body.value, 29.9);
+      assert.strictEqual(pay.body.billingType, 'PIX'); assert.strictEqual(pay.body.value, 19.9);
       assert.strictEqual(pay.body.externalReference, payA.ref); assert.strictEqual(pay.body.dueDate, sp(1));
       assert.ok(!mock.state.requests.some((x) => x.method === 'GET' && x.headers['content-length'] > 0));
     });
@@ -114,7 +114,7 @@ const baseEnv = (extra = {}) => ({ ...process.env, PORT: String(PORT), DATA_DIR,
     });
     await t('trocar de plano cancela a cobrança anterior também no Asaas', async () => {
       const r = await A.post('/api/billing/pix', { plan: 'premium' });
-      assert.strictEqual(r.status, 201); payPrem = r.data.payment; assert.notStrictEqual(payPrem.ref, payA.ref); assert.strictEqual(payPrem.amountCents, 4990);
+      assert.strictEqual(r.status, 201); payPrem = r.data.payment; assert.notStrictEqual(payPrem.ref, payA.ref); assert.strictEqual(payPrem.amountCents, 3490);
       assert.strictEqual(one('SELECT status FROM payments WHERE ref = ?', payA.ref).status, 'canceled');
       assert.strictEqual(mock.paymentByRef(payA.ref).deleted, true);
     });
@@ -252,8 +252,8 @@ const baseEnv = (extra = {}) => ({ ...process.env, PORT: String(PORT), DATA_DIR,
       assert.strictEqual((await D.post('/api/billing/pix', { plan: 'plus', months: 2, cpfCnpj: CPF, fullName: 'Dora Alves Pinto' })).status, 400, 'ciclo inexistente');
       assert.strictEqual((await D.post('/api/billing/pix', { item: 'ouro', cpfCnpj: CPF, fullName: 'Dora Alves Pinto' })).status, 400, 'item inexistente');
       const r = await D.post('/api/billing/pix', { plan: 'plus', months: 3, amountCents: 1, cpfCnpj: CPF, fullName: 'Dora Alves Pinto' });
-      assert.strictEqual(r.status, 201, JSON.stringify(r.data)); assert.strictEqual(r.data.payment.amountCents, 6990); assert.match(r.data.payment.label, /3 meses/);
-      const ap = mock.paymentByRef(r.data.payment.ref); assert.strictEqual(ap.value, 69.9); assert.match(ap.description, /3 meses/);
+      assert.strictEqual(r.status, 201, JSON.stringify(r.data)); assert.strictEqual(r.data.payment.amountCents, 4652); assert.match(r.data.payment.label, /3 meses/);
+      const ap = mock.paymentByRef(r.data.payment.ref); assert.strictEqual(ap.value, 46.52); assert.match(ap.description, /3 meses/);
       await mock.pay(ap.id);
       const u = await until(async () => { const m = (await D.get('/api/me')).data.user; return m.plan === 'plus' ? m : null; }, 6000, 'plus trimestral');
       assert.ok(Math.abs(u.planUntil - (Date.now() + 90 * DAY)) < 120000);
@@ -261,7 +261,7 @@ const baseEnv = (extra = {}) => ({ ...process.env, PORT: String(PORT), DATA_DIR,
     await t('cada ciclo tem a sua cobrança; pedir o mesmo ciclo reaproveita', async () => {
       const a = await D.post('/api/billing/pix', { plan: 'plus', months: 6 });
       const b = await D.post('/api/billing/pix', { plan: 'plus', months: 6 });
-      assert.strictEqual(a.data.payment.ref, b.data.payment.ref); assert.strictEqual(a.data.payment.amountCents, 11990);
+      assert.strictEqual(a.data.payment.ref, b.data.payment.ref); assert.strictEqual(a.data.payment.amountCents, 7980);
       const c = await D.post('/api/billing/pix', { plan: 'plus', months: 1 });
       assert.notStrictEqual(c.data.payment.ref, a.data.payment.ref);
       assert.strictEqual(one('SELECT status FROM payments WHERE ref = ?', a.data.payment.ref).status, 'canceled');
@@ -292,7 +292,7 @@ const baseEnv = (extra = {}) => ({ ...process.env, PORT: String(PORT), DATA_DIR,
     await t('renovação automática usa o mesmo ciclo da última compra do plano', async () => {
       run('UPDATE users SET plan_until = ?, renewal_off = 0 WHERE id = ?', Date.now() + 2 * DAY, dUser.id);
       const pend = await until(async () => (await D.get('/api/billing/status')).data.pending, 8000, 'renovação');
-      assert.strictEqual(pend.amountCents, 6990); assert.strictEqual(pend.months, 3);
+      assert.strictEqual(pend.amountCents, 4652); assert.strictEqual(pend.months, 3);
       await D.post(`/api/billing/pix/${pend.ref}/cancel`);
     });
 
