@@ -37,6 +37,8 @@ const ok = (n, c, extra) => { results.push([n, !!c]); console.log((c ? '  ok    
     console.log('\nCadastro');
     await page.click('#btnJoin');
     ok('modal de cadastro abre', await page.locator('#regForm').isVisible());
+    await page.waitForFunction(() => document.querySelector('#rCity').value === 'ourinhos-sp');
+    ok('Ourinhos - SP é a cidade inicial do cadastro', (await page.inputValue('#rCity')) === 'ourinhos-sp');
     await page.fill('#rName', 'Helena');
     const y = new Date().getFullYear() - 17;
     await page.fill('#rBirth', `${y}-06-15`);

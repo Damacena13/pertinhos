@@ -95,7 +95,7 @@ const ufOptions = (sel) => Object.keys(S.ufs).sort((x, y) => S.ufs[x].localeComp
 const cityOptions = (uf, selected) => S.cities.filter((c) => c.uf === uf).map((c) => `<option value="${esc(c.id)}"${c.id === selected ? ' selected' : ''}>${esc(c.name)}</option>`).join('');
 // Liga o par estado/cidade: trocar o estado recarrega as cidades dele.
 function wireCity(ufSel, citySel, cityId) {
-  const c = S.cities.find((x) => x.id === cityId) || S.cities.find((x) => x.id === 'sao-jose-do-rio-preto-sp') || S.cities[0];
+  const c = S.cities.find((x) => x.id === cityId) || S.cities.find((x) => x.id === 'ourinhos-sp') || S.cities[0];
   ufSel.innerHTML = ufOptions(c.uf); citySel.innerHTML = cityOptions(c.uf, c.id);
   ufSel.onchange = () => { citySel.innerHTML = cityOptions(ufSel.value, null); };
 }
@@ -829,7 +829,7 @@ async function init() {
   heroRadar(); bindAuthOpeners(); bindPix();
   if (confirmToken) { try { await api('POST', '/api/auth/confirm', { token: confirmToken }); toast('E-mail confirmado! Agora você já pode curtir e conversar.'); } catch (e) { toast(e.message); } }
   if (resetToken) { $('#rsMsg').textContent = ''; setAuthMode('reset'); openModal('authModal'); }
-  try { const r = await api('GET', '/api/cities'); S.ufs = r.ufs; S.cities = r.cities.map(([id, name, uf]) => ({ id, name, uf })); wireCity($('#rUf'), $('#rCity'), 'sao-jose-do-rio-preto-sp'); } catch (e) { /* segue */ }
+  try { const r = await api('GET', '/api/cities'); S.ufs = r.ufs; S.cities = r.cities.map(([id, name, uf]) => ({ id, name, uf })); wireCity($('#rUf'), $('#rCity'), 'ourinhos-sp'); } catch (e) { /* segue */ }
   try { S.plans = await api('GET', '/api/plans'); renderPublicPlans(); } catch (e) { /* segue */ }
   try {
     const r = await api('GET', '/api/me');

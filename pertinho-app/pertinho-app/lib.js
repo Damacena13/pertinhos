@@ -54,7 +54,7 @@ function haversine(lat1, lng1, lat2, lng2) {
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
-// Guarda a posição numa grade de ~550 m para nunca armazenar o ponto exato do GPS.
+// A grade de 0,005° desloca o ponto menos de 500 m em qualquer latitude válida.
 const snap = (v) => Math.round(v / 0.005) * 0.005;
 function hash32(n) {
   let h = Math.imul(Number(n) ^ 0x9e3779b9, 0x85ebca6b);
