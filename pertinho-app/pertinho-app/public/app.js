@@ -112,6 +112,7 @@ function heroRadar() {
   $('#heroRadar').innerHTML = h;
 }
 const reais = (c) => (c === 0 ? 'R$ 0' : 'R$ ' + (c / 100).toFixed(2).replace('.', ','));
+const PLAN_CARD_DISPLAY_PRICE_CENTS = { plus: 1990, premium: 3490 };
 function planFeatures(p) {
   const L = p.limits, free = S.plans ? S.plans.freeChatMessages : 3;
   const f = [`Raio de até ${L.maxRadius} km`, L.dailyLikes ? `${L.dailyLikes} curtidas a cada 24 horas` : 'Curtidas ilimitadas', `${L.superPerDay} Super Curtida${L.superPerDay === 1 ? '' : 's'} por dia`, L.extraPhotos ? 'Ver todas as fotos de cada perfil' : 'Foto principal de cada perfil'];
@@ -133,13 +134,16 @@ function planCards(mode, months) {
   months = months || 1;
   const cur = S.user ? S.user.plan : null;
   return S.plans.plans.map((p) => {
+    const displayPlan = months === 1 && PLAN_CARD_DISPLAY_PRICE_CENTS[p.id] != null
+      ? { ...p, priceCents: PLAN_CARD_DISPLAY_PRICE_CENTS[p.id] }
+      : p;
     const hot = p.id === 'plus';
     let btn;
     if (mode === 'public') btn = `<button class="btn${hot ? '' : ' ghost'}" type="button" data-open-auth="register">${p.id === 'free' ? 'Começar grátis' : 'Assinar o ' + esc(p.name)}</button>`;
     else if (p.id === cur) btn = `<button class="btn ghost" type="button" disabled>Seu plano atual</button>${p.id !== 'free' ? `<button class="btn ghost" type="button" data-buy="${p.id}" data-months="${months}" style="margin-top:.5rem"${S.plans.paymentsEnabled ? '' : ' disabled'}>Renovar por ${cycleName(months)}</button><button class="btn ghost" type="button" data-cancel-plan style="margin-top:.5rem">${S.plans.paymentsMode === 'asaas' ? 'Não renovar' : 'Cancelar assinatura'}</button>` : ''}`;
     else if (p.id === 'free') btn = '';
     else btn = `<button class="btn${hot ? '' : ' ghost'}" type="button" data-buy="${p.id}" data-months="${months}"${S.plans.paymentsEnabled ? '' : ' disabled'}>Assinar o ${esc(p.name)}</button>`;
-    return `<div class="plan${hot ? ' hot' : ''}${p.id === cur ? ' cur' : ''}">${hot ? '<span class="chip pink" style="justify-self:start">Mais escolhido</span>' : ''}<h3>${esc(p.name)}</h3>${priceBlock(p, months)}<ul>${planFeatures(p).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>${btn}</div>`;
+    return `<div class="plan${hot ? ' hot' : ''}${p.id === cur ? ' cur' : ''}">${hot ? '<span class="chip pink" style="justify-self:start">Mais escolhido</span>' : ''}<h3>${esc(p.name)}</h3>${priceBlock(displayPlan, months)}<ul>${planFeatures(p).map((x) => `<li>${esc(x)}</li>`).join('')}</ul>${btn}</div>`;
   }).join('');
 }
 function renderPublicPlans() { $('#publicPlans').innerHTML = planCards('public'); bindAuthOpeners(); }
