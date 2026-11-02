@@ -46,10 +46,55 @@ $$('.adm-tabs .tab').forEach((b) => { b.onclick = () => go(b.dataset.s); });
 function go(s) {
   section = s;
   $$('.adm-tabs .tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.s === s)));
-  ({ resumo: viewResumo, usuarios: viewUsuarios, denuncias: viewDenuncias, verificacoes: viewVerificacoes, fotos: viewFotos, convites: viewConvites, encontros: viewEncontros, assinaturas: viewAssinaturas, auditoria: viewAuditoria })[s]();
+  ({ resumo: viewResumo, usuarios: viewUsuarios, denuncias: viewDenuncias, verificacoes: viewVerificacoes, fotos: viewFotos, convites: viewConvites, encontros: viewEncontros, configuracoes: viewSettings, assinaturas: viewAssinaturas, auditoria: viewAuditoria })[s]();
 }
 const view = () => $('#view');
 function onErr(e) { if (e.status === 401 || e.status === 403) { me = null; showLogin('Sua sessão expirou. Entre novamente.'); } else toast(e.message); }
+
+/* ---------- configurações ---------- */
+async function viewSettings() {
+  view().innerHTML = '<p class="empty-s">Carregando...</p>';
+  try {
+    const settings = await api('GET', '/api/admin/settings');
+    view().innerHTML = `
+      <form class="panel" id="settingsForm" style="max-width:38rem;display:grid;gap:1rem">
+        <h2>Configurações do sistema</h2>
+        <p class="note">O e-mail altera a identificação usada para entrar no painel. Os novos preços valem para futuras cobranças; cobranças já emitidas não mudam.</p>
+        <div class="field"><label for="settingsAdminEmail">E-mail administrador</label><input id="settingsAdminEmail" type="email" autocomplete="email" maxlength="160" required value="${esc(settings.adminEmail)}"></div>
+        <div class="field"><label for="settingsPlusPrice">Plano Plus (R$ por mês)</label><input id="settingsPlusPrice" type="number" min="0.01" max="10000" step="0.01" required value="${(settings.prices.plus / 100).toFixed(2)}"></div>
+        <div class="field"><label for="settingsPremiumPrice">Plano Premium (R$ por mês)</label><input id="settingsPremiumPrice" type="number" min="0.01" max="10000" step="0.01" required value="${(settings.prices.premium / 100).toFixed(2)}"></div>
+        <div class="field"><label for="settingsCurrentPassword">Senha atual do administrador para confirmar</label><input id="settingsCurrentPassword" type="password" autocomplete="current-password" required></div>
+        <p class="formerr" id="settingsError" role="alert"></p>
+        <button class="btn" type="submit">Salvar configurações</button>
+      </form>`;
+    $('#settingsForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const button = e.currentTarget.querySelector('button[type="submit"]');
+      const error = $('#settingsError');
+      const toCents = (id) => {
+        const amount = Number($(id).value);
+        return Number.isFinite(amount) ? Math.round(amount * 100) : NaN;
+      };
+      button.disabled = true;
+      error.textContent = '';
+      try {
+        const saved = await api('PUT', '/api/admin/settings', {
+          adminEmail: $('#settingsAdminEmail').value.trim(),
+          currentPassword: $('#settingsCurrentPassword').value,
+          prices: { plus: toCents('#settingsPlusPrice'), premium: toCents('#settingsPremiumPrice') },
+        });
+        me.email = saved.adminEmail;
+        $('#who').textContent = me.email;
+        toast('Configurações salvas.');
+        viewSettings();
+      } catch (err) {
+        error.textContent = err.message;
+      } finally {
+        if (button.isConnected) button.disabled = false;
+      }
+    };
+  } catch (e) { onErr(e); }
+}
 
 /* ---------- resumo ---------- */
 async function viewResumo() {

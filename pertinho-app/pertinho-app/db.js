@@ -299,6 +299,10 @@ CREATE TABLE IF NOT EXISTS notif_log (
   key TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `);
 const matchCols = db.prepare('PRAGMA table_info(matches)').all().map((c) => c.name);
 if (!matchCols.includes('direct_by')) db.exec('ALTER TABLE matches ADD COLUMN direct_by INTEGER'); // pedido de conversa feito com o Passe 24h

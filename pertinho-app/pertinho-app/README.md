@@ -88,7 +88,7 @@ Para cobrar de verdade é preciso contratar um gateway (Mercado Pago, Stripe, Pa
 
 ## O que o painel ADM faz
 
-Resumo (usuários, ativos, cadastros por dia, receita recorrente, cidades), busca de usuários, ficha completa com atividade, suspender ou reativar, verificar perfil, conceder plano manualmente, fila de denúncias (dispensar, advertir ou suspender), moderação de fotos, lista de assinaturas e registro de auditoria de todas as ações dos administradores.
+Resumo (usuários, ativos, cadastros por dia, receita recorrente, cidades), busca de usuários, ficha completa com atividade, suspender ou reativar, verificar perfil, conceder plano manualmente, fila de denúncias (dispensar, advertir ou suspender), moderação de fotos, lista de assinaturas e registro de auditoria de todas as ações dos administradores. A aba **Configurações** permite alterar o e-mail de acesso do administrador e os preços mensais Plus/Premium (iniciais de R$ 19,90 e R$ 34,90), confirmando com a senha atual; os novos preços persistem no SQLite e mantêm os descontos dos ciclos.
 
 ## Segurança já implementada
 

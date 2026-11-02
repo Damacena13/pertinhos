@@ -14,6 +14,18 @@ const grants = require('./grants')({ db, L });
 const { CITIES, UFS, byId: cityById } = require('./cities');
 const { makeEvents } = require('./events');
 
+const DEFAULT_PLAN_PRICES = { plus: 1990, premium: 3490 };
+const readSetting = db.prepare('SELECT value FROM app_settings WHERE key = ?');
+const writeSetting = db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+const insertDefaultSetting = db.prepare('INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)');
+for (const [plan, cents] of Object.entries(DEFAULT_PLAN_PRICES)) {
+  insertDefaultSetting.run(`plan_price_${plan}`, String(cents));
+}
+L.setPlanMonthlyPrices({
+  plus: Number(readSetting.get('plan_price_plus').value),
+  premium: Number(readSetting.get('plan_price_premium').value),
+});
+
 const PORT = Number(process.env.PORT) || 3000;
 const PROD = process.env.NODE_ENV === 'production';
 const PAYMENTS = process.env.PAYMENTS_MODE || 'off'; // 'off' | 'demo' | 'asaas'
@@ -1032,6 +1044,40 @@ admin.get('/stats', (req, res) => {
     topCities: db.prepare("SELECT COALESCE(city_name,'Sem cidade') AS city, COUNT(*) c FROM users WHERE role='user' GROUP BY city_name ORDER BY c DESC LIMIT 8").all(),
     signups: days,
   });
+});
+
+admin.get('/settings', (req, res) => {
+  const user = db.prepare("SELECT email FROM users WHERE id = ? AND role = 'admin'").get(req.user.id);
+  if (!user) throw new HttpError(403, 'Acesso restrito.');
+  res.json({
+    adminEmail: user.email,
+    prices: { plus: L.PLANS.plus.priceCents, premium: L.PLANS.premium.priceCents },
+  });
+});
+
+admin.put('/settings', async (req, res) => {
+  const body = req.body || {};
+  const email = L.clean(body.adminEmail, 160).toLowerCase();
+  const prices = body.prices || {};
+  if (!L.EMAIL_RE.test(email)) throw bad('Informe um e-mail de administrador válido.');
+  if (!Number.isSafeInteger(prices.plus) || prices.plus < 1 || prices.plus > 1_000_000 ||
+      !Number.isSafeInteger(prices.premium) || prices.premium < 1 || prices.premium > 1_000_000) {
+    throw bad('Informe preços mensais entre R$ 0,01 e R$ 10.000,00.');
+  }
+  if (!(await L.verifyPassword(String(body.currentPassword || ''), req.user.pass_hash))) {
+    throw new HttpError(403, 'A senha atual do administrador está incorreta.');
+  }
+  const duplicate = db.prepare("SELECT 1 FROM users WHERE email = ? AND id != ?").get(email, req.user.id);
+  if (duplicate) throw new HttpError(409, 'Este e-mail já está sendo usado por outra conta.');
+
+  db.transaction(() => {
+    db.prepare("UPDATE users SET email = ? WHERE id = ? AND role = 'admin'").run(email, req.user.id);
+    writeSetting.run('plan_price_plus', String(prices.plus));
+    writeSetting.run('plan_price_premium', String(prices.premium));
+    audit(req.user.id, 'updateSettings', 'settings', `E-mail: ${email}; Plus: ${prices.plus}; Premium: ${prices.premium}`);
+  })();
+  L.setPlanMonthlyPrices(prices);
+  res.json({ adminEmail: email, prices });
 });
 
 admin.get('/users', (req, res) => {

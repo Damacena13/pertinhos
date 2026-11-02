@@ -32,6 +32,7 @@ class Client {
   get(u) { return this.req('GET', u); }
   post(u, b, o) { return this.req('POST', u, b, o); }
   patch(u, b) { return this.req('PATCH', u, b); }
+  put(u, b) { return this.req('PUT', u, b); }
   del(u, b) { return this.req('DELETE', u, b); }
 }
 
@@ -245,6 +246,7 @@ function photoForm(buf = PNG, name = 'x.png', type = 'image/png') {
     await t('usuário comum não acessa o painel ADM', async () => {
       assert.strictEqual((await B.get('/api/admin/stats')).status, 403);
       assert.strictEqual((await anon.get('/api/admin/users')).status, 403);
+      assert.strictEqual((await B.get('/api/admin/settings')).status, 403);
     });
     await t('denúncia exige motivo válido e bloquear remove o match', async () => {
       assert.strictEqual((await B.post(`/api/users/${aliceMatchUser.id}/report`, { reason: 'inventado' })).status, 400);
@@ -302,6 +304,36 @@ function photoForm(buf = PNG, name = 'x.png', type = 'image/png') {
       assert.ok(ph.length > 0);
       assert.strictEqual((await ADM.del(`/api/admin/photos/${ph[0].id}`)).status, 200);
       assert.strictEqual((await ADM.get(`/api/photos/${ph[0].id}`)).status, 404);
+    });
+    await t('admin altera e-mail e preços com persistência e senha atual', async () => {
+      const initial = await ADM.get('/api/admin/settings');
+      assert.deepStrictEqual(initial.data, { adminEmail: 'admin@teste.com', prices: { plus: 1990, premium: 3490 } });
+      assert.strictEqual((await ADM.put('/api/admin/settings', {
+        adminEmail: 'admin-novo@teste.com', currentPassword: 'senha-incorreta',
+        prices: { plus: 1990, premium: 3490 },
+      })).status, 403);
+      const saved = await ADM.put('/api/admin/settings', {
+        adminEmail: 'admin-novo@teste.com', currentPassword: 'SenhaAdmin#123',
+        prices: { plus: 2190, premium: 3690 },
+      });
+      assert.strictEqual(saved.status, 200);
+      assert.deepStrictEqual((await ADM.get('/api/admin/settings')).data, saved.data);
+      const publicPlans = (await anon.get('/api/plans')).data.plans;
+      assert.strictEqual(publicPlans.find((p) => p.id === 'plus').priceCents, 2190);
+      assert.strictEqual(publicPlans.find((p) => p.id === 'premium').priceCents, 3690);
+      const checkout = await A.post('/api/billing/checkout', { plan: 'plus', months: 1 });
+      assert.strictEqual(checkout.status, 200);
+      const db = new (require('node:sqlite').DatabaseSync)(path.join(DATA_DIR, 'pertinho.db'));
+      const anaId = db.prepare("SELECT id FROM users WHERE email = 'ana@teste.com'").get().id;
+      assert.strictEqual(db.prepare('SELECT amount_cents FROM subscriptions WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(anaId).amount_cents, 2190);
+      assert.strictEqual(db.prepare("SELECT value FROM app_settings WHERE key = 'plan_price_plus'").get().value, '2190');
+      assert.strictEqual(db.prepare("SELECT value FROM app_settings WHERE key = 'plan_price_premium'").get().value, '3690');
+      db.close();
+      assert.strictEqual((await ADM.put('/api/admin/settings', {
+        adminEmail: 'admin-novo@teste.com', currentPassword: 'SenhaAdmin#123',
+        prices: { plus: 1990, premium: 3490 },
+      })).status, 200);
+      assert.strictEqual((await anon.post('/api/auth/login', { email: 'admin-novo@teste.com', password: 'SenhaAdmin#123' })).status, 200);
     });
 
     console.log('\nPrivacidade (LGPD)');

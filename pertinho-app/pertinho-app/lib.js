@@ -84,8 +84,21 @@ const PLANS = {
 };
 // Valores totais dos ciclos em centavos, com os descontos proporcionais mantidos.
 const PLAN_PRICES = { plus: { 1: 1990, 3: 4652, 6: 7980 }, premium: { 1: 3490, 3: 8162, 6: 13953 } };
+const PLAN_PRICE_DISCOUNTS = Object.fromEntries(Object.entries(PLAN_PRICES).map(([id, prices]) => [
+  id,
+  { 3: prices[3] / (PLANS[id].priceCents * 3), 6: prices[6] / (PLANS[id].priceCents * 6) },
+]));
 const CYCLE_MONTHS = [1, 3, 6];
 const priceOf = (plan, months) => (PLAN_PRICES[plan] && PLAN_PRICES[plan][months]) || null;
+function setPlanMonthlyPrices(prices) {
+  for (const id of ['plus', 'premium']) {
+    const monthly = prices[id];
+    if (!Number.isSafeInteger(monthly) || monthly < 1) throw new TypeError(`Preço mensal inválido para ${id}.`);
+    PLANS[id].priceCents = monthly;
+    PLAN_PRICES[id][1] = monthly;
+    for (const months of [3, 6]) PLAN_PRICES[id][months] = Math.round(monthly * months * PLAN_PRICE_DISCOUNTS[id][months]);
+  }
+}
 // Compras avulsas, sem assinatura.
 const SHOP = {
   pass24h: { id: 'pass24h', name: 'Passe 24h de conversa', priceCents: 690, desc: 'Por 24 horas, mande mensagem para até 15 pessoas sem esperar match.' },
@@ -181,5 +194,5 @@ module.exports = {
   validCpfCnpj, validCpf, cpfHash,
   hashPassword, verifyPassword, DUMMY_HASH, newToken, sha256,
   parseBirth, ageFrom, birthLimit, haversine, snap, cityPoint, distanceText, hash32,
-  PLANS, PLAN_PRICES, CYCLE_MONTHS, priceOf, SHOP, FREE_CHAT_MESSAGES, CHAT_LIMITED, chatUnlocked, passActive, isOnline, boostActive, affinity, effectivePlan, clean, EMAIL_RE, cleanInterests, imageKind,
+  PLANS, PLAN_PRICES, CYCLE_MONTHS, priceOf, setPlanMonthlyPrices, SHOP, FREE_CHAT_MESSAGES, CHAT_LIMITED, chatUnlocked, passActive, isOnline, boostActive, affinity, effectivePlan, clean, EMAIL_RE, cleanInterests, imageKind,
 };
