@@ -294,7 +294,7 @@ $('#planChip').addEventListener('click', (e) => { e.preventDefault(); if (S.user
 function setTab(t) {
   S.tab = t;
   $$('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
-  ['descobrir', 'mapa', 'matches', 'encontros', 'jogos', 'seguranca', 'perfil', 'planos'].forEach((n) => { $('#p-' + n).hidden = n !== t; });
+  ['descobrir', 'mapa', 'matches', 'jogos', 'seguranca', 'perfil', 'planos'].forEach((n) => { $('#p-' + n).hidden = n !== t; });
   $('#filters').style.display = (t === 'descobrir' || t === 'mapa') ? '' : 'none';
   if (t === 'descobrir') loadDeck();
   if (t === 'mapa') { loadDeck().then(renderMap); loadRings(); renderSpots(); loadRadar(); }
