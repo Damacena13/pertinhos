@@ -156,6 +156,9 @@
   .mbox{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:26px;padding:1.6rem;max-width:440px;width:100%;display:grid;gap:.9rem;box-shadow:var(--shadow)}
   .mbox.wide{max-width:740px}
   .mx{position:absolute;top:10px;right:10px}
+  .admin-tabs{display:flex;gap:.45rem;flex-wrap:wrap}
+  .admin-tabs button[aria-selected="true"]{background:var(--violet);color:var(--violet-ink)}
+  .admin-selfie{width:min(100%,240px);max-height:320px;object-fit:contain;border-radius:14px;background:var(--bg)}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:.65rem 1.1rem;border-radius:14px;z-index:80;font-weight:600;font-size:.86rem;box-shadow:var(--shadow)}
   .toast[hidden]{display:none}
 
@@ -346,6 +349,8 @@
   let MESSAGES = [];
   let MATCHES = [];
   let CURRENT_USER = null;
+  let ADMIN_ROLE = null;
+  let PLAN_PRICES = { plus: 1990, premium: 3490 };
   let S = { view: "descobrir", cityFilter: "all", genderFilter: "all", cur: 0, myName: "" };
 
   const VIEWS = [["descobrir","Descobrir","flame"],["radar","Radar","radar"],["conversas","Conversas","chat"],["perfil","Meu Perfil","user"]];
@@ -731,7 +736,7 @@
           password:$("#adminPassword").value
         });
         if(error) throw error;
-        await loadAdminProfiles();
+        await loadAdminPanel();
       }catch(error){
         $("#adminLoginError").textContent=error.message || "Não foi possível autenticar ou validar o acesso administrativo.";
       }finally{
@@ -740,51 +745,106 @@
     };
   }
 
+  function adminRole(user){
+    const role=user?.app_metadata?.role;
+    if(role==="SuperAdmin" || role==="superadmin" || role==="admin") return "SuperAdmin";
+    if(role==="Moderador" || role==="moderador") return "Moderador";
+    return null;
+  }
+
   async function requireAdminSession(){
     const {data,error}=await supabaseClient.auth.getUser();
     if(error) throw error;
-    if(!data.user || data.user.app_metadata?.role!=="admin"){
+    const role=adminRole(data.user);
+    if(!data.user || !role){
       const {error:signOutError}=await supabaseClient.auth.signOut();
       if(signOutError) throw new Error("A conta não tem permissão administrativa e não foi possível encerrar a sessão: "+signOutError.message);
+      ADMIN_ROLE=null;
       throw new Error("Esta conta não tem permissão administrativa.");
     }
+    ADMIN_ROLE=role;
     return data.user;
   }
 
-  async function loadAdminProfiles(){
+  function renderAdminShell(activeTab){
     const box=$("#adminContent");
-    box.innerHTML=`<p class="note">Validando a sessão administrativa e carregando perfis...</p>`;
+    const tabs=ADMIN_ROLE==="SuperAdmin"
+      ? [["perfis","Perfis"],["denuncias","Denúncias"],["selfies","Selfies"],["planos","Planos"]]
+      : [["denuncias","Denúncias"],["selfies","Selfies"]];
+    box.innerHTML=`<div class="row"><p class="note grow">Acesso: <strong>${ADMIN_ROLE==="SuperAdmin"?"SuperAdmin":"Moderador"}</strong>${ADMIN_ROLE==="Moderador"?" · somente leitura de denúncias e selfies":""}</p><button class="btn ghost small" id="adminSignOut" type="button">Sair do painel</button></div>
+      <nav class="admin-tabs" aria-label="Seções administrativas" role="tablist">${tabs.map(([id,label])=>`<button class="btn ghost small" type="button" role="tab" data-admin-tab="${id}" aria-selected="${id===activeTab}">${label}</button>`).join("")}</nav>
+      <div id="adminView" style="display:grid;gap:1rem"></div>`;
+    $("#adminSignOut").onclick=async()=>{
+      const {error}=await supabaseClient.auth.signOut();
+      if(error){toast("Não foi possível encerrar a sessão: "+error.message);return;}
+      ADMIN_ROLE=null;
+      showAdminLogin("Sessão encerrada.");
+    };
+    box.querySelectorAll("[data-admin-tab]").forEach(button=>{
+      button.onclick=()=>loadAdminView(button.dataset.adminTab).catch(error=>showAdminError(error));
+    });
+  }
+
+  function showAdminError(error){
+    const view=$("#adminView");
+    const message=error?.message || "Não foi possível carregar esta seção.";
+    if(view) view.innerHTML=`<p class="err" role="alert">${esc(message)}</p>`;
+    else $("#adminContent").textContent=message;
+  }
+
+  async function loadAdminPanel(){
+    const box=$("#adminContent");
+    box.innerHTML=`<p class="note">Validando a sessão administrativa...</p>`;
+    const user=await requireAdminSession();
+    const role=adminRole(user);
+    renderAdminShell(role==="SuperAdmin"?"perfis":"denuncias");
+    await loadAdminView(role==="SuperAdmin"?"perfis":"denuncias");
+  }
+
+  async function loadAdminView(tab){
+    const user=await requireAdminSession();
+    const role=adminRole(user);
+    const allowed=role==="SuperAdmin"
+      ? ["perfis","denuncias","selfies","planos"]
+      : ["denuncias","selfies"];
+    if(!allowed.includes(tab)) throw new Error("Seu nível de acesso não permite abrir esta seção.");
+    $$("#adminContent [data-admin-tab]").forEach(button=>button.setAttribute("aria-selected",String(button.dataset.adminTab===tab)));
+    const view=$("#adminView");
+    view.innerHTML=`<p class="note">Carregando...</p>`;
+    if(tab==="perfis") return loadAdminProfiles(view);
+    if(tab==="denuncias") return loadAdminReports(view);
+    if(tab==="selfies") return loadAdminSelfies(view);
+    if(tab==="planos") return loadAdminPrices(view);
+  }
+
+  async function loadAdminProfiles(view){
     await requireAdminSession();
+    if(ADMIN_ROLE!=="SuperAdmin") throw new Error("Somente SuperAdmin pode gerenciar perfis.");
     const {data,error}=await supabaseClient.from('profiles')
       .select('id,nome,idade,cidade,genero,foto_url')
       .order('created_at',{ascending:false});
     if(error) throw error;
     if(!data) throw new Error("O Supabase não retornou os perfis.");
-    box.innerHTML=`<div class="row"><p class="note grow">Acesso administrativo autenticado.</p><button class="btn ghost small" id="adminSignOut" type="button">Sair do painel</button></div>`+
-      (data.length ? data.map(p=>`<div class="panel" style="display:flex;justify-content:space-between;align-items:center">
+    view.innerHTML=data.length ? data.map(p=>`<div class="panel" style="display:flex;justify-content:space-between;align-items:center">
         <div style="display:flex;gap:.8rem;align-items:center">
           <span class="av" aria-hidden="true"></span>
           <div><strong>${esc(p.nome)}, ${esc(p.idade)}</strong><div class="note">${esc(p.cidade)} · ${esc(p.genero)}</div></div>
         </div>
         <button class="btn danger small" type="button" data-admin-delete="${esc(p.id)}">Excluir Perfil</button>
-      </div>`).join("") : `<p class="note">Nenhum perfil cadastrado.</p>`);
-    $("#adminSignOut").onclick=async()=>{
-      const {error}=await supabaseClient.auth.signOut();
-      if(error){toast("Não foi possível encerrar a sessão: "+error.message);return;}
-      showAdminLogin("Sessão encerrada.");
-    };
-    box.querySelectorAll("[data-admin-delete]").forEach(button=>{
+      </div>`).join("") : `<p class="note">Nenhum perfil cadastrado.</p>`;
+    view.querySelectorAll("[data-admin-delete]").forEach(button=>{
       button.onclick=async()=>{
         if(!confirm("Tem certeza que deseja apagar este perfil do sistema?")) return;
         button.disabled=true;
         try{
           await requireAdminSession();
+          if(ADMIN_ROLE!=="SuperAdmin") throw new Error("Somente SuperAdmin pode excluir perfis.");
           const {data,error}=await supabaseClient.from('profiles')
             .delete().eq('id',button.dataset.adminDelete).select('id').maybeSingle();
           if(error) throw error;
           if(!data) throw new Error("Nenhum perfil foi excluído. Verifique a política RLS administrativa.");
           toast("Perfil excluído.");
-          await loadAdminProfiles();
+          await loadAdminProfiles(view);
           await fetchProfiles();
         }catch(error){
           toast("Falha ao excluir perfil: "+(error.message || "acesso negado."));
@@ -792,6 +852,123 @@
         }
       };
     });
+  }
+
+  async function loadAdminReports(view){
+    await requireAdminSession();
+    const {data,error}=await supabaseClient.from('reports')
+      .select('id,reporter_id,reported_user_id,reason,details,status,created_at')
+      .order('created_at',{ascending:false});
+    if(error) throw error;
+    view.innerHTML=data?.length ? data.map(report=>`<article class="panel">
+      <div class="row"><strong>Denúncia #${esc(report.id)}</strong><span class="chip">${esc(report.status)}</span></div>
+      <p>${esc(report.reason)}</p><p class="note">${esc(report.details || "Sem detalhes adicionais.")}</p>
+      <p class="note">Denunciante: ${esc(report.reporter_id)} · Perfil denunciado: ${esc(report.reported_user_id)}</p>
+      <p class="note">${esc(new Date(report.created_at).toLocaleString("pt-BR"))}</p>
+      ${ADMIN_ROLE==="SuperAdmin" && report.status==="open" ? `<div class="row"><button class="btn small" type="button" data-report-status="reviewed" data-report-id="${esc(report.id)}">Marcar revisada</button><button class="btn ghost small" type="button" data-report-status="dismissed" data-report-id="${esc(report.id)}">Dispensar</button></div>` : ""}
+    </article>`).join("") : `<p class="note">Nenhuma denúncia cadastrada.</p>`;
+    view.querySelectorAll("[data-report-status]").forEach(button=>{
+      button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await requireAdminSession();
+          if(ADMIN_ROLE!=="SuperAdmin") throw new Error("Somente SuperAdmin pode alterar denúncias.");
+          const {error:updateError}=await supabaseClient.from('reports')
+            .update({status:button.dataset.reportStatus}).eq('id',button.dataset.reportId);
+          if(updateError) throw updateError;
+          await loadAdminReports(view);
+        }catch(updateError){
+          toast("Não foi possível atualizar a denúncia: "+updateError.message);
+          button.disabled=false;
+        }
+      };
+    });
+  }
+
+  async function loadAdminSelfies(view){
+    await requireAdminSession();
+    const {data,error}=await supabaseClient.from('selfie_verifications')
+      .select('id,user_id,selfie_path,status,created_at')
+      .order('created_at',{ascending:false});
+    if(error) throw error;
+    const selfies=await Promise.all((data || []).map(async selfie=>{
+      const {data:signed,error:signError}=await supabaseClient.storage
+        .from('moderation-selfies').createSignedUrl(selfie.selfie_path,300);
+      if(signError) throw signError;
+      return {...selfie,imageUrl:signed.signedUrl};
+    }));
+    view.innerHTML=selfies.length ? selfies.map(selfie=>`<article class="panel">
+      <strong>Verificação de ${esc(selfie.user_id)}</strong>
+      <img class="admin-selfie" src="${esc(selfie.imageUrl)}" alt="Selfie enviada para verificação">
+      <span class="chip">${esc(selfie.status)}</span>
+      <p class="note">${esc(new Date(selfie.created_at).toLocaleString("pt-BR"))}</p>
+      ${ADMIN_ROLE==="SuperAdmin" && selfie.status==="pending" ? `<div class="row"><button class="btn small" type="button" data-selfie-status="approved" data-selfie-id="${esc(selfie.id)}">Aprovar</button><button class="btn ghost small" type="button" data-selfie-status="rejected" data-selfie-id="${esc(selfie.id)}">Recusar</button></div>` : ""}
+    </article>`).join("") : `<p class="note">Nenhuma selfie pendente ou cadastrada.</p>`;
+    view.querySelectorAll("[data-selfie-status]").forEach(button=>{
+      button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await requireAdminSession();
+          if(ADMIN_ROLE!=="SuperAdmin") throw new Error("Somente SuperAdmin pode alterar verificações.");
+          const {error:updateError}=await supabaseClient.from('selfie_verifications')
+            .update({status:button.dataset.selfieStatus}).eq('id',button.dataset.selfieId);
+          if(updateError) throw updateError;
+          await loadAdminSelfies(view);
+        }catch(updateError){
+          toast("Não foi possível atualizar a verificação: "+updateError.message);
+          button.disabled=false;
+        }
+      };
+    });
+  }
+
+  async function loadAdminPrices(view){
+    await requireAdminSession();
+    if(ADMIN_ROLE!=="SuperAdmin") throw new Error("Somente SuperAdmin pode alterar os preços.");
+    const {data,error}=await supabaseClient.from('plan_prices')
+      .select('plus_cents,premium_cents').eq('id',1).single();
+    if(error) throw error;
+    if(!data) throw new Error("Preços não encontrados. Execute o script SQL de configuração administrativa.");
+    PLAN_PRICES={plus:data.plus_cents,premium:data.premium_cents};
+    view.innerHTML=`<form class="panel" id="adminPricesForm">
+      <h3>Preços mensais dos planos</h3>
+      <p class="note">Os valores ficam persistidos no Supabase para serem lidos pelo fluxo de planos.</p>
+      <label class="fld">Plus (R$ por mês)<input type="number" id="adminPlusPrice" min="0.01" max="10000" step="0.01" value="${(PLAN_PRICES.plus/100).toFixed(2)}" required></label>
+      <label class="fld">Premium (R$ por mês)<input type="number" id="adminPremiumPrice" min="0.01" max="10000" step="0.01" value="${(PLAN_PRICES.premium/100).toFixed(2)}" required></label>
+      <p class="err" id="adminPricesError" role="alert"></p>
+      <button class="btn" type="submit">Salvar preços</button>
+    </form>`;
+    $("#adminPricesForm").onsubmit=async event=>{
+      event.preventDefault();
+      const button=event.currentTarget.querySelector('button[type="submit"]');
+      const errorBox=$("#adminPricesError");
+      const toCents=id=>{
+        const amount=Number($(id).value);
+        return Number.isFinite(amount)?Math.round(amount*100):NaN;
+      };
+      const prices={plus_cents:toCents("#adminPlusPrice"),premium_cents:toCents("#adminPremiumPrice")};
+      if(!Number.isSafeInteger(prices.plus_cents) || prices.plus_cents<1 || prices.plus_cents>1000000 ||
+         !Number.isSafeInteger(prices.premium_cents) || prices.premium_cents<1 || prices.premium_cents>1000000){
+        errorBox.textContent="Informe preços entre R$ 0,01 e R$ 10.000,00.";
+        return;
+      }
+      button.disabled=true;
+      errorBox.textContent="";
+      try{
+        await requireAdminSession();
+        if(ADMIN_ROLE!=="SuperAdmin") throw new Error("Somente SuperAdmin pode alterar os preços.");
+        const {data,error}=await supabaseClient.from('plan_prices')
+          .update({...prices,updated_at:new Date().toISOString()}).eq('id',1)
+          .select('plus_cents,premium_cents').single();
+        if(error) throw error;
+        PLAN_PRICES={plus:data.plus_cents,premium:data.premium_cents};
+        toast("Preços salvos no Supabase.");
+      }catch(error){
+        errorBox.textContent=error.message || "Não foi possível salvar os preços.";
+      }finally{
+        if(button.isConnected) button.disabled=false;
+      }
+    };
   }
 
   $("#admBtn").onclick=async()=>{
@@ -803,7 +980,7 @@
     try{
       const {data,error}=await supabaseClient.auth.getUser();
       if(error) throw error;
-      if(data.user && data.user.app_metadata?.role==="admin") await loadAdminProfiles();
+      if(data.user && adminRole(data.user)) await loadAdminPanel();
       else showAdminLogin();
     }catch(error){
       showAdminLogin(error.message || "Não foi possível verificar a sessão.");
