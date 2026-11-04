@@ -54,11 +54,15 @@ app.use(
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          'https://cdn.jsdelivr.net',
+          "'sha256-9SLrwy+QxJu2+/yuPyNzkq2mPTVkMY1iSDoJNVDzrRo='",
+        ],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ['https://fonts.gstatic.com'],
-        imgSrc: ["'self'", 'data:', 'blob:'],
-        connectSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https://cqvlonwpsnfujplhczpn.supabase.co'],
+        connectSrc: ["'self'", 'https://cqvlonwpsnfujplhczpn.supabase.co', 'wss://cqvlonwpsnfujplhczpn.supabase.co'],
         objectSrc: ["'none'"],
         frameAncestors: ["'none'"],
         baseUri: ["'self'"],
