@@ -2,7 +2,7 @@ services:
   - type: web
     name: pertinhos-demo
     runtime: node
-    plan: starter
+    plan: free
     region: ohio
     rootDir: pertinho-app atualizado
     buildCommand: npm ci
@@ -14,7 +14,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATA_DIR
-        value: /data
+        value: /tmp/pertinhos-data
       - key: TRUST_PROXY
         value: "1"
       - key: PAYMENTS_MODE
@@ -25,7 +25,3 @@ services:
         sync: false
       - key: CPF_PEPPER
         sync: false
-    disk:
-      name: pertinhos-data
-      mountPath: /data
-      sizeGB: 1
