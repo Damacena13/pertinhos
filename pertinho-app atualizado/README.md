@@ -41,6 +41,8 @@ O sistema precisa de um servidor Node com **disco persistente**, porque guarda o
 3. Adicione um **disco persistente** (por exemplo montado em `/data`) e defina as variáveis abaixo.
 4. Aponte seu domínio para o serviço. O HTTPS é automático nesses provedores.
 
+Neste repositório, `render.yaml` na raiz já configura o Render para esta pasta, com disco persistente em `/data`. O serviço usa o plano Starter (pago); confirme o preço atual no painel antes de criar/sincronizar. Ao criar, informe `ADMIN_EMAIL`, `ADMIN_PASSWORD` e `CPF_PEPPER` como variáveis secretas no Render. Não use `/tmp` para `DATA_DIR`: esse diretório não é persistente.
+
 ### Opção B: VPS própria (Ubuntu)
 
 ```bash

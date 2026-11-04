@@ -5,6 +5,13 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Pertinhos - Encontros Reais por Proximidade</title>
   <meta name="description" content="Conecte-se com pessoas reais em Ourinhos e região por proximidade e interesses.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Pertinhos">
+  <meta property="og:title" content="Pertinhos - Encontros Reais por Proximidade">
+  <meta property="og:description" content="Conecte-se com pessoas reais em Ourinhos e região por proximidade e interesses.">
+  <meta property="og:image" content="__BASE__/og.png">
+  <meta property="og:url" content="__BASE__/">
+  <meta name="twitter:card" content="summary_large_image">
   <meta name="theme-color" content="#0B0D13">
   <meta name="color-scheme" content="dark light">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -271,6 +278,7 @@
         <div class="row">
           <button class="btn" type="submit" id="signInBtn">Entrar</button>
           <button class="btn ghost" type="button" id="signUpBtn">Criar conta</button>
+          <button class="btn ghost" type="button" id="forgotPasswordBtn">Esqueci a senha</button>
         </div>
       </form>
     </div>
@@ -321,8 +329,22 @@
   <div class="modal" id="mAdmin" role="dialog" aria-modal="true" hidden="">
     <div class="mbox wide">
       <button class="ibtn mx" data-close="" type="button" aria-label="Fechar"><svg class="ic"><use href="#i-x"></use></svg></button>
-      <div><h2>Painel Administrativo</h2><p class="note">Gerenciamento completo dos perfis reais cadastrados no Supabase.</p></div>
+      <div><h2>Painel Administrativo</h2><p class="note">Acesso protegido por função administrativa.</p></div>
       <div id="adminContent" style="display:grid;gap:1rem;max-height:60vh;overflow-y:auto"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="mResetPassword" role="dialog" aria-modal="true" aria-labelledby="resetPasswordTitle" hidden="">
+    <div class="mbox">
+      <button class="ibtn mx" id="closeResetPassword" type="button" aria-label="Fechar"><svg class="ic"><use href="#i-x"></use></svg></button>
+      <h2 id="resetPasswordTitle">Criar nova senha</h2>
+      <p class="note">Defina uma nova senha para sua conta.</p>
+      <form id="resetPasswordForm" novalidate>
+        <label class="fld">Nova senha<input type="password" id="resetPasswordInput" autocomplete="new-password" minlength="8" required></label>
+        <label class="fld">Confirme a nova senha<input type="password" id="confirmResetPasswordInput" autocomplete="new-password" minlength="8" required></label>
+        <p class="err" id="resetPasswordError" role="alert"></p>
+        <button class="btn block" type="submit" id="saveResetPasswordBtn">Salvar nova senha</button>
+      </form>
     </div>
   </div>
 
@@ -439,7 +461,15 @@
       $("#signUpBtn").disabled=true;
       return;
     }
-    supabaseClient.auth.onAuthStateChange((_event, session)=>{
+    supabaseClient.auth.onAuthStateChange((event, session)=>{
+      if(event === "PASSWORD_RECOVERY"){
+        setTimeout(()=>{
+          $("#resetPasswordForm").reset();
+          $("#resetPasswordError").textContent="";
+          openM("mResetPassword");
+          $("#resetPasswordInput").focus();
+        },0);
+      }
       const user = session && session.user ? session.user : null;
       setTimeout(()=>refreshAuthenticatedUser(user).catch(error=>{
         toast("Não foi possível carregar sua conta: "+error.message);
@@ -637,10 +667,69 @@
     }
   }
 
+  $("#forgotPasswordBtn").onclick=async()=>{
+    const email=$("#authEmail").value.trim();
+    const errorBox=$("#authError");
+    errorBox.textContent="";
+    if(!supabaseClient){ toast("Serviço de autenticação indisponível."); return; }
+    if(!email || !$("#authEmail").checkValidity()){
+      errorBox.textContent="Informe um e-mail válido para receber o link de recuperação.";
+      $("#authEmail").focus();
+      return;
+    }
+
+    const button=$("#forgotPasswordBtn");
+    button.disabled=true;
+    try{
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+        redirectTo: window.location.origin + window.location.pathname
+      });
+      if(error) throw error;
+      toast("Se houver uma conta para este e-mail, enviaremos um link para redefinir a senha.");
+    }catch(error){
+      console.error("Erro ao solicitar recuperação de senha:",error);
+      errorBox.textContent=error.message || "Não foi possível solicitar a recuperação agora.";
+    }finally{
+      button.disabled=false;
+    }
+  };
+
+  $("#closeResetPassword").onclick=()=>closeM("mResetPassword");
+  $("#resetPasswordForm").onsubmit=async e=>{
+    e.preventDefault();
+    const password = document.querySelector("#resetPasswordInput").value;
+    const confirmation=$("#confirmResetPasswordInput").value;
+    const errorBox=$("#resetPasswordError");
+    errorBox.textContent="";
+    if(password.length<8){
+      errorBox.textContent="A senha precisa ter pelo menos 8 caracteres.";
+      return;
+    }
+    if(password!==confirmation){
+      errorBox.textContent="As senhas não coincidem.";
+      return;
+    }
+    const button=$("#saveResetPasswordBtn");
+    button.disabled=true;
+    try{
+      const { error } = await supabaseClient.auth.updateUser({password});
+      if(error) throw error;
+      $("#resetPasswordForm").reset();
+      closeM("mResetPassword");
+      toast("Senha alterada com sucesso. Você já pode acessar sua conta.");
+    }catch(error){
+      console.error("Erro ao redefinir senha:",error);
+      errorBox.textContent=error.message || "Não foi possível alterar a senha.";
+    }finally{
+      button.disabled=false;
+    }
+  };
+
   $("#authForm").onsubmit=async function(e){
     e.preventDefault();
     if(!supabaseClient){ toast("Serviço de autenticação indisponível."); return; }
-    const email=$("#authEmail").value.trim(), password=$("#authPassword").value;
+    const email = document.querySelector("#authEmail").value.trim();
+    const password = document.querySelector("#authPassword").value;
     const button=$("#signInBtn"), errorBox=$("#authError");
     errorBox.textContent="";
     button.disabled=true;
@@ -659,7 +748,8 @@
 
   $("#signUpBtn").onclick=async()=>{
     if(!supabaseClient){ toast("Serviço de autenticação indisponível."); return; }
-    const email=$("#authEmail").value.trim(), password=$("#authPassword").value;
+    const email = document.querySelector("#authEmail").value.trim();
+    const password = document.querySelector("#authPassword").value;
     const errorBox=$("#authError");
     errorBox.textContent="";
     $("#signInBtn").disabled=true;
