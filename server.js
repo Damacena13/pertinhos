@@ -14,21 +14,10 @@ const grants = require('./grants')({ db, L });
 const { CITIES, UFS, byId: cityById } = require('./cities');
 const { makeEvents } = require('./events');
 
-const DEFAULT_PLAN_PRICES = { plus: 1990, premium: 3490 };
-const readSetting = db.prepare('SELECT value FROM app_settings WHERE key = ?');
-const writeSetting = db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
-const insertDefaultSetting = db.prepare('INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)');
-for (const [plan, cents] of Object.entries(DEFAULT_PLAN_PRICES)) {
-  insertDefaultSetting.run(`plan_price_${plan}`, String(cents));
-}
-L.setPlanMonthlyPrices({
-  plus: Number(readSetting.get('plan_price_plus').value),
-  premium: Number(readSetting.get('plan_price_premium').value),
-});
-
 const PORT = Number(process.env.PORT) || 3000;
 const PROD = process.env.NODE_ENV === 'production';
 const PAYMENTS = process.env.PAYMENTS_MODE || 'off'; // 'off' | 'demo' | 'asaas'
+if (PROD && PAYMENTS === 'demo') throw new Error("PAYMENTS_MODE=demo libera planos de graça e não pode rodar em produção. Use 'off' ou 'asaas'.");
 if (!['off', 'demo', 'asaas'].includes(PAYMENTS)) throw new Error("PAYMENTS_MODE precisa ser 'off', 'demo' ou 'asaas'.");
 let asaasClient = null, asaasWebhookToken = null;
 if (PAYMENTS === 'asaas') {
@@ -217,7 +206,7 @@ function publicProfile(target, viewer, km) {
     extraLocked: !canSee && extra.length > 0,
   };
 }
-const distBetween = (a, b) => (a.lat == null || b.lat == null ? null : L.haversine(a.lat, a.lng, b.lat, b.lng));
+const distBetween = (a, b) => (a.lat == null || b.lat == null ? null : L.fuzzyDistance(a, b));
 
 const isBlocked = db.prepare('SELECT 1 FROM blocks WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)');
 const blockedBetween = (a, b) => !!isBlocked.get(a, b, b, a);
@@ -272,6 +261,7 @@ app.post('/api/auth/register', limitAuth, async (req, res) => {
   if (!city) throw bad('Escolha sua cidade.');
   if (qEmail.get(email)) throw bad('Este e-mail já tem cadastro. Entre na sua conta.');
   const cpfH = L.cpfHash(cpf, CPF_PEPPER);
+  if (db.prepare('SELECT 1 FROM cpf_blocked WHERE cpf_hash = ?').get(cpfH)) throw new HttpError(403, 'Este CPF não pode criar um novo cadastro. Fale com o suporte.');
   if (db.prepare('SELECT 1 FROM users WHERE cpf_hash = ?').get(cpfH)) throw new HttpError(409, 'Este CPF já tem cadastro. Entre na conta existente ou fale com o suporte.');
 
   // Conferência em base oficial (quando contratada): idade e nome vêm do CPF, não do que a pessoa digitou.
@@ -352,6 +342,13 @@ const notify = require('./notify').makeNotify({ db, mailer, now, secret: CPF_PEP
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const RESET_MS = 60 * 60 * 1000;
 const publicBase = (req) => (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+function localResetEnabled(req) {
+  const remoteAddress = String(req.socket?.remoteAddress || '').replace(/^::ffff:/, '');
+  const loopbackAddress = remoteAddress === '::1' || /^127(?:\.\d{1,3}){3}$/.test(remoteAddress);
+  const host = String(req.headers.host || '').toLowerCase();
+  const loopbackHost = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])(?::\d{1,5})?$/.test(host);
+  return !PROD && process.env.PASSWORD_RESET_DEV_MODE === '1' && loopbackAddress && loopbackHost;
+}
 function makeResetToken(userId) {
   const token = L.newToken();
   db.transaction(() => {
@@ -405,13 +402,18 @@ app.post('/api/auth/resend-confirm', requireAuth, limitAuth, async (req, res) =>
 app.post('/api/auth/forgot', limitAuth, async (req, res) => {
   const email = L.clean(req.body?.email, 160).toLowerCase();
   const u = L.EMAIL_RE.test(email) && qEmail.get(email);
-  if (u && u.status === 'active' && u.role !== 'admin' && mailer.enabled()) {
-    const link = `${publicBase(req)}/?reset=${makeResetToken(u.id)}`;
-    mailer.sendMail({
-      to: u.email, subject: 'Redefinir sua senha do Pertinho',
-      text: `Olá, ${u.name}!\n\nPara criar uma nova senha, abra o link abaixo (vale por 1 hora):\n${link}\n\nSe não foi você, ignore este e-mail: sua senha continua a mesma.`,
-      html: `<p>Olá, ${esc(u.name)}!</p><p>Para criar uma nova senha, <a href="${link}">clique aqui</a> (vale por 1 hora).</p><p>Se não foi você, ignore este e-mail: sua senha continua a mesma.</p>`,
-    }).catch(() => {});
+  if (u && u.status === 'active' && u.role !== 'admin') {
+    if (localResetEnabled(req)) {
+      return res.json({ ok: true, emailEnabled: false, localResetToken: makeResetToken(u.id) });
+    }
+    if (mailer.enabled()) {
+      const link = `${publicBase(req)}/?reset=${makeResetToken(u.id)}`;
+      mailer.sendMail({
+        to: u.email, subject: 'Redefinir sua senha do Pertinho',
+        text: `Olá, ${u.name}!\n\nPara criar uma nova senha, abra o link abaixo (vale por 1 hora):\n${link}\n\nSe não foi você, ignore este e-mail: sua senha continua a mesma.`,
+        html: `<p>Olá, ${esc(u.name)}!</p><p>Para criar uma nova senha, <a href="${link}">clique aqui</a> (vale por 1 hora).</p><p>Se não foi você, ignore esta mensagem: sua senha continua a mesma.</p>`,
+      }).catch(() => {});
+    }
   }
   res.json({ ok: true, emailEnabled: mailer.enabled() });
 });
@@ -456,9 +458,23 @@ app.patch('/api/me', requireAuth, (req, res) => {
   res.json({ user: meJson(db.prepare('SELECT * FROM users WHERE id = ?').get(u.id)) });
 });
 
+const LOC_MAX_PER_DAY = Number(process.env.LOC_MAX_PER_DAY) || 3;
+const LOC_MAX_JUMP_KM = 400, LOC_JUMP_WINDOW_MS = 6 * 3600 * 1000;
 app.post('/api/me/location', requireAuth, (req, res) => {
   const b = req.body || {};
   const u = req.user;
+  // Trocar de lugar sem parar serve para descobrir onde alguém está: limite diário e sem saltos impossíveis.
+  const recent = db.prepare('SELECT lat, lng, at FROM loc_changes WHERE user_id = ? AND at > ? ORDER BY at DESC').all(u.id, now() - DAY);
+  if (recent.length >= LOC_MAX_PER_DAY) throw new HttpError(429, `Você já trocou de localização ${LOC_MAX_PER_DAY} vezes hoje. Tente de novo amanhã.`);
+  const last = recent[0];
+  let target = null;
+  if (b.cityId === undefined) {
+    const la = Number(b.lat), lo = Number(b.lng);
+    if (Number.isFinite(la) && Number.isFinite(lo)) target = { lat: la, lng: lo };
+  } else { const c = cityById(b.cityId); if (c) target = { lat: c.lat, lng: c.lng }; }
+  if (target && last && now() - last.at < LOC_JUMP_WINDOW_MS && L.haversine(last.lat, last.lng, target.lat, target.lng) > LOC_MAX_JUMP_KM)
+    throw new HttpError(429, 'Essa mudança é longe demais para tão pouco tempo. Tente de novo mais tarde.');
+  if (target) db.prepare('INSERT INTO loc_changes (user_id, lat, lng, at) VALUES (?,?,?,?)').run(u.id, target.lat, target.lng, now());
   if (b.cityId !== undefined) {
     const city = cityById(b.cityId);
     if (!city) throw bad('Cidade inválida.');
@@ -618,8 +634,8 @@ app.get('/api/discover', requireAuth, limitScrape, (req, res) => {
   const ageMax = Math.min(99, Math.max(ageMin, Number(req.query.ageMax) || 60));
   const onlyVerified = req.query.verified === '1' && plan.verifiedFilter;
   const onlyOnline = req.query.online === '1';
-  const dLat = radius / 111;
-  const dLng = radius / (111 * Math.max(0.2, Math.cos((me.lat * Math.PI) / 180)));
+  const dLat = (radius + L.DIST_NOISE_KM) / 111;
+  const dLng = (radius + L.DIST_NOISE_KM) / (111 * Math.max(0.2, Math.cos((me.lat * Math.PI) / 180)));
   const rows = db
     .prepare(
       `SELECT u.* FROM users u
@@ -683,11 +699,11 @@ app.get('/api/discover/count', requireAuth, (req, res) => {
   // quantas pessoas existem por raio (1, 5, 10, 25, 50, 100 km), para o mapa
   const me = req.user;
   if (me.lat == null) return res.json({ rings: [] });
-  const rows = db.prepare(`SELECT u.lat, u.lng, u.gender, u.seeking FROM users u WHERE u.id != ? AND u.role='user' AND u.status='active' AND u.invisible=0${VIS} AND u.lat IS NOT NULL AND EXISTS (SELECT 1 FROM photos p WHERE p.user_id=u.id AND p.is_main=1 AND p.status='ok')`).all(me.id);
+  const rows = db.prepare(`SELECT u.id, u.lat, u.lng, u.gender, u.seeking FROM users u WHERE u.id != ? AND u.role='user' AND u.status='active' AND u.invisible=0${VIS} AND u.lat IS NOT NULL AND EXISTS (SELECT 1 FROM photos p WHERE p.user_id=u.id AND p.is_main=1 AND p.status='ok')`).all(me.id);
   const rings = [1, 5, 10, 25, 50, 100].map((r) => ({ km: r, count: 0 }));
   for (const u of rows) {
     if (!(me.seeking === 'all' || me.seeking === u.gender) || !(u.seeking === 'all' || u.seeking === me.gender)) continue;
-    const d = L.haversine(me.lat, me.lng, u.lat, u.lng);
+    const d = L.fuzzyDistance(me, u);
     for (const r of rings) if (d <= r.km) r.count++;
   }
   res.json({ rings });
@@ -943,7 +959,15 @@ app.post('/api/users/:id/report', requireAuth, (req, res) => {
   const reason = REPORT_REASONS.includes(req.body?.reason) ? req.body.reason : null;
   if (!reason) throw bad('Escolha o motivo da denúncia.');
   const dup = db.prepare("SELECT 1 FROM reports WHERE reporter_id = ? AND reported_id = ? AND status = 'open'").get(req.user.id, id);
-  if (!dup) db.prepare('INSERT INTO reports (reporter_id, reported_id, reason, details, created_at) VALUES (?,?,?,?,?)').run(req.user.id, id, reason, L.clean(req.body?.details, 500), now());
+  if (!dup) {
+    const rid = Number(db.prepare('INSERT INTO reports (reporter_id, reported_id, reason, details, created_at) VALUES (?,?,?,?,?)').run(req.user.id, id, reason, L.clean(req.body?.details, 500), now()).lastInsertRowid);
+    // Guarda uma cópia das últimas mensagens entre os dois: o bloqueio apaga a conversa, mas a moderação precisa da prova.
+    const m = db.prepare('SELECT id FROM matches WHERE a_id = ? AND b_id = ?').get(Math.min(req.user.id, id), Math.max(req.user.id, id));
+    if (m) {
+      const msgs = db.prepare('SELECT sender_id, kind, body, created_at FROM messages WHERE match_id = ? ORDER BY id DESC LIMIT 30').all(m.id).reverse();
+      if (msgs.length) db.prepare('INSERT INTO report_evidence (report_id, messages, created_at) VALUES (?,?,?)').run(rid, JSON.stringify(msgs.map((x) => ({ from: x.sender_id === req.user.id ? 'denunciante' : 'denunciado', kind: x.kind, body: x.body, at: x.created_at }))), now());
+    }
+  }
   if (req.body?.block) {
     db.transaction(() => {
       db.prepare('INSERT OR IGNORE INTO blocks (blocker_id, blocked_id, created_at) VALUES (?,?,?)').run(req.user.id, id, now());
@@ -997,6 +1021,8 @@ app.delete('/api/me', requireAuth, async (req, res) => {
   if (!(await L.verifyPassword(String(req.body?.password || ''), req.user.pass_hash))) throw bad('Senha incorreta.');
   for (const p of db.prepare('SELECT filename FROM photos WHERE user_id = ?').all(req.user.id)) fs.rm(path.join(UPLOAD_DIR, p.filename), { force: true }, () => {});
   for (const v of db.prepare('SELECT filename FROM verifications WHERE user_id = ? AND filename IS NOT NULL').all(req.user.id)) rmVerifFile(v.filename);
+  const owing = req.user.status === 'suspended' || db.prepare("SELECT 1 FROM reports WHERE reported_id = ? AND status = 'open'").get(req.user.id);
+  if (owing && req.user.cpf_hash) db.prepare('INSERT OR IGNORE INTO cpf_blocked (cpf_hash, reason, created_at) VALUES (?,?,?)').run(req.user.cpf_hash, req.user.status === 'suspended' ? 'conta suspensa' : 'denúncia em aberto', now());
   db.prepare('DELETE FROM users WHERE id = ?').run(req.user.id);
   clearSession(res);
   res.json({ ok: true });
@@ -1044,40 +1070,6 @@ admin.get('/stats', (req, res) => {
     topCities: db.prepare("SELECT COALESCE(city_name,'Sem cidade') AS city, COUNT(*) c FROM users WHERE role='user' GROUP BY city_name ORDER BY c DESC LIMIT 8").all(),
     signups: days,
   });
-});
-
-admin.get('/settings', (req, res) => {
-  const user = db.prepare("SELECT email FROM users WHERE id = ? AND role = 'admin'").get(req.user.id);
-  if (!user) throw new HttpError(403, 'Acesso restrito.');
-  res.json({
-    adminEmail: user.email,
-    prices: { plus: L.PLANS.plus.priceCents, premium: L.PLANS.premium.priceCents },
-  });
-});
-
-admin.put('/settings', async (req, res) => {
-  const body = req.body || {};
-  const email = L.clean(body.adminEmail, 160).toLowerCase();
-  const prices = body.prices || {};
-  if (!L.EMAIL_RE.test(email)) throw bad('Informe um e-mail de administrador válido.');
-  if (!Number.isSafeInteger(prices.plus) || prices.plus < 1 || prices.plus > 1_000_000 ||
-      !Number.isSafeInteger(prices.premium) || prices.premium < 1 || prices.premium > 1_000_000) {
-    throw bad('Informe preços mensais entre R$ 0,01 e R$ 10.000,00.');
-  }
-  if (!(await L.verifyPassword(String(body.currentPassword || ''), req.user.pass_hash))) {
-    throw new HttpError(403, 'A senha atual do administrador está incorreta.');
-  }
-  const duplicate = db.prepare("SELECT 1 FROM users WHERE email = ? AND id != ?").get(email, req.user.id);
-  if (duplicate) throw new HttpError(409, 'Este e-mail já está sendo usado por outra conta.');
-
-  db.transaction(() => {
-    db.prepare("UPDATE users SET email = ? WHERE id = ? AND role = 'admin'").run(email, req.user.id);
-    writeSetting.run('plan_price_plus', String(prices.plus));
-    writeSetting.run('plan_price_premium', String(prices.premium));
-    audit(req.user.id, 'updateSettings', 'settings', `E-mail: ${email}; Plus: ${prices.plus}; Premium: ${prices.premium}`);
-  })();
-  L.setPlanMonthlyPrices(prices);
-  res.json({ adminEmail: email, prices });
 });
 
 admin.get('/users', (req, res) => {
@@ -1156,7 +1148,7 @@ admin.get('/reports', (req, res) => {
   const rows = db.prepare(`SELECT r.*, (SELECT name FROM users WHERE id = r.reporter_id) AS reporter, ru.name AS reported_name, ru.status AS reported_status,
       (SELECT COUNT(*) FROM reports x WHERE x.reported_id = r.reported_id) AS total_against
     FROM reports r JOIN users ru ON ru.id = r.reported_id WHERE r.status = ? ORDER BY r.id ASC LIMIT 100`).all(status);
-  res.json({ reports: rows.map((r) => ({ id: r.id, reason: r.reason, details: r.details, status: r.status, resolution: r.resolution, createdAt: r.created_at, reporter: r.reporter, reportedId: r.reported_id, reportedName: r.reported_name, reportedStatus: r.reported_status, totalAgainst: r.total_against })) });
+  res.json({ reports: rows.map((r) => ({ id: r.id, reason: r.reason, details: r.details, status: r.status, resolution: r.resolution, createdAt: r.created_at, reporter: r.reporter, reportedId: r.reported_id, reportedName: r.reported_name, reportedStatus: r.reported_status, totalAgainst: r.total_against, evidence: (() => { const e = db.prepare('SELECT messages FROM report_evidence WHERE report_id = ?').get(r.id); try { return e ? JSON.parse(e.messages) : []; } catch { return []; } })() })) });
 });
 admin.post('/reports/:id/resolve', (req, res) => {
   const id = intId(req.params.id);

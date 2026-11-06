@@ -45,12 +45,17 @@ const reg = (email, name, extra = {}) => ({ cpf: nextCpf(), email, password: 'se
 const photo = (field = 'photo') => { const f = new FormData(); f.append(field, new Blob([PNG], { type: 'image/png' }), 'x.png'); return f; };
 const dbq = () => new DatabaseSync(path.join(DATA_DIR, 'pertinho.db'));
 const one = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).get(...a); } finally { d.close(); } };
+const all = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
 const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(...a); } finally { d.close(); } };
+const stopServer = (child) => {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => { child.once('exit', resolve); child.kill(); });
+};
 
 (async () => {
   const mails = [];
   const mailSrv = http.createServer((req, res) => { let b = ''; req.on('data', (d) => (b += d)); req.on('end', () => { mails.push({ auth: req.headers.authorization, body: JSON.parse(b) }); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"id":"1"}'); }); }).listen(MAIL_PORT);
-  const srv = spawn('node', ['server.js'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let srv = spawn('node', ['server.js'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let srvLog = ''; srv.stdout.on('data', (d) => (srvLog += d)); srv.stderr.on('data', (d) => (srvLog += d));
   const tokenOf = (m) => (m.body.text.match(/\?reset=([A-Za-z0-9_-]+)/) || [])[1];
   try {
@@ -74,7 +79,7 @@ const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(..
       assert.ok(!(await fetch(BASE + '/api/auth/forgot', { method: 'POST', headers: { 'content-type': 'application/json', 'x-pertinho': '1' }, body: JSON.stringify({ email: 'ana@teste.com' }) }).then((x) => x.text())).includes(token));
     });
     await t('o banco guarda só o resumo do token, nunca o token', async () => {
-      const rows = new DatabaseSync(path.join(DATA_DIR, 'pertinho.db')).prepare('SELECT token_hash FROM password_resets').all();
+      const rows = all('SELECT token_hash FROM password_resets');
       assert.ok(rows.length >= 1); assert.ok(rows.every((r) => r.token_hash !== token && r.token_hash.length === 64));
     });
     await t('token errado ou senha curta são recusados', async () => {
@@ -112,13 +117,46 @@ const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(..
       assert.ok((await ADM.get('/api/admin/audit')).data.log.some((l) => l.action === 'resetLink'));
     });
     await t('admin não gera link para outro administrador; usuário comum não usa a rota', async () => {
-      const aid = new DatabaseSync(path.join(DATA_DIR, 'pertinho.db')).prepare("SELECT id FROM users WHERE role='admin'").get().id;
+      const aid = one("SELECT id FROM users WHERE role='admin'").id;
       assert.strictEqual((await ADM.post(`/api/admin/users/${aid}/action`, { action: 'resetLink' })).status, 400);
       assert.strictEqual((await new Client().post(`/api/admin/users/1/action`, { action: 'resetLink' })).status, 403);
     });
+    await t('modo local revela token de uso único somente para conta existente via loopback', async () => {
+      const mailCountBefore = mails.length;
+      await stopServer(srv);
+      const localEnv = { ...env, RESEND_API_KEY: '', MAIL_FROM: '', PASSWORD_RESET_DEV_MODE: '1' };
+      srv = spawn('node', ['server.js'], { env: localEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+      for (let i = 0; i < 80; i++) { try { if ((await fetch(BASE + '/api/plans')).ok) break; } catch (e) { /* subindo */ } await sleep(250); }
+      const local = new Client();
+      const known = await local.post('/api/auth/forgot', { email: 'ana@teste.com' });
+      assert.strictEqual(known.status, 200);
+      const localToken = known.data.localResetToken;
+      assert.ok(localToken && localToken.length >= 40);
+      assert.strictEqual(known.data.emailEnabled, false);
+      const unknown = await local.post('/api/auth/forgot', { email: 'nao-existe@teste.com' });
+      assert.strictEqual(unknown.status, 200); assert.ok(!unknown.data.localResetToken);
+      const remoteHost = await new Promise((resolve, reject) => {
+        const request = http.request({
+          hostname: '127.0.0.1', port: PORT, path: '/api/auth/forgot', method: 'POST',
+          headers: { Host: 'remote.example', 'content-type': 'application/json', 'x-pertinho': '1' },
+        }, (response) => {
+          let body = '';
+          response.setEncoding('utf8');
+          response.on('data', (chunk) => { body += chunk; });
+          response.on('end', () => resolve({ status: response.statusCode, body }));
+        });
+        request.on('error', reject);
+        request.end(JSON.stringify({ email: 'ana@teste.com' }));
+      });
+      assert.ok(!/"localResetToken"\s*:/.test(remoteHost.body), 'Host público não pode obter token local');
+      assert.strictEqual((await local.post('/api/auth/reset', { token: localToken, password: 'senha-homologacao-123' })).status, 200);
+      assert.strictEqual((await local.post('/api/auth/reset', { token: localToken, password: 'senha-repetida-123' })).status, 400);
+      assert.strictEqual((await new Client().post('/api/auth/login', { email: 'ana@teste.com', password: 'senha-homologacao-123' })).status, 200);
+      await sleep(200); assert.strictEqual(mails.length, mailCountBefore, 'modo local não deve enviar e-mail');
+    });
   } catch (e) { failed++; console.log('ERRO GERAL', e.message); }
-  srv.kill(); mailSrv.close();
-  await sleep(300);
+  await stopServer(srv);
+  await new Promise((resolve) => mailSrv.close(resolve));
   fs.rmSync(DATA_DIR, { recursive: true, force: true });
   console.log(`\n${passed} passaram, ${failed} falharam`);
   if (failed && process.env.SHOW_LOG) console.log('--- log do servidor ---\n' + srvLog);

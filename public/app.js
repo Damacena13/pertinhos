@@ -147,6 +147,7 @@ function renderPublicPlans() { $('#publicPlans').innerHTML = planCards('public')
 /* ---------- autenticação ---------- */
 function openAuth(mode) { const rn = $('#refNote'); if (rn) rn.hidden = !pendingRef(); setAuthMode(mode); $('#lErr').textContent = ''; $('#rErr').textContent = ''; openModal('authModal'); }
 let resetToken = '';
+let resetEmail = '';
 function setAuthMode(mode) {
   ['forgotForm', 'resetForm'].forEach((id) => { const f = $('#' + id); if (f) f.hidden = true; });
   if (mode === 'forgot' || mode === 'reset') {
@@ -213,17 +214,29 @@ $('#fgBack').onclick = () => setAuthMode('login');
 $('#forgotForm').addEventListener('submit', async (e) => {
   e.preventDefault(); $('#fgMsg').textContent = '';
   try {
-    const r = await api('POST', '/api/auth/forgot', { email: $('#fgEmail').value });
+    const email = $('#fgEmail').value.trim();
+    const r = await api('POST', '/api/auth/forgot', { email });
+    if (r.localResetToken) {
+      resetToken = r.localResetToken;
+      resetEmail = email;
+      $('#rsMsg').style.color = 'var(--ink)';
+      $('#rsMsg').textContent = 'Modo local de homologação: crie uma nova senha agora. Este acesso temporário expira em 1 hora.';
+      setAuthMode('reset');
+      return;
+    }
     $('#fgMsg').style.color = 'var(--ink)';
-    $('#fgMsg').textContent = r.emailEnabled ? 'Pronto. Se esse e-mail tiver conta, o link chega em instantes. Olhe também o spam.' : 'O envio automático de e-mail ainda não está ativo neste site. Peça o link de redefinição ao suporte.';
+    $('#fgMsg').textContent = r.emailEnabled
+      ? 'Se esse e-mail tiver uma conta, enviaremos um link pessoal para redefinir a senha.'
+      : 'Para proteger sua conta, a redefinição exige um link pessoal de uso único. Solicite-o ao suporte.';
   } catch (err) { $('#fgMsg').style.color = ''; $('#fgMsg').textContent = err.message; }
 });
 $('#resetForm').addEventListener('submit', async (e) => {
   e.preventDefault(); $('#rsMsg').textContent = '';
   try {
     await api('POST', '/api/auth/reset', { token: resetToken, password: $('#rsPass').value });
-    resetToken = ''; $('#rsPass').value = ''; setAuthMode('login'); toast('Senha alterada. Entre com a nova senha.');
-  } catch (err) { $('#rsMsg').textContent = err.message; }
+    resetToken = ''; $('#rsPass').value = ''; $('#lEmail').value = resetEmail; resetEmail = '';
+    $('#rsMsg').style.color = ''; setAuthMode('login'); toast('Senha alterada com sucesso. Entre com sua nova senha.');
+  } catch (err) { $('#rsMsg').style.color = ''; $('#rsMsg').textContent = err.message; }
 });
 $('#loginForm').addEventListener('submit', async (e) => {
   e.preventDefault(); $('#lErr').textContent = '';

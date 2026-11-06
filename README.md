@@ -104,7 +104,7 @@ Resumo (usuários, ativos, cadastros por dia, receita recorrente, cidades), busc
 ## O que ainda falta antes de abrir ao público
 
 1. **Revisão jurídica** de `public/termos.html` e `public/privacidade.html` (são modelos) e dados da empresa.
-2. **Confirmação de e-mail e recuperação de senha.** Exigem um serviço de e-mail (Resend, SendGrid, Amazon SES). Hoje quem esquece a senha não consegue recuperar.
+2. **Confirmação de e-mail e recuperação de senha.** Em produção, a recuperação exige um link de uso único enviado ao titular por um serviço de e-mail (Resend, SendGrid, Amazon SES), ou um link gerado pelo administrador autenticado. Para homologação local, `PASSWORD_RESET_DEV_MODE=1` disponibiliza um token de uso único apenas em requisições loopback e nunca quando `NODE_ENV=production`.
 3. **Pagamentos reais** (seção acima).
 4. **Verificação de identidade.** Hoje o selo "verificado" é concedido manualmente pelo administrador. Para automatizar, é preciso um serviço de prova de vida e documento.
 5. **Moderação de imagens** (detecção automática de nudez), se esperar volume alto de fotos.

@@ -4,7 +4,6 @@ services:
     runtime: node
     plan: free
     region: ohio
-    rootDir: pertinho-app atualizado
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /api/plans
