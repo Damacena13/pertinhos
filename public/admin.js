@@ -46,7 +46,7 @@ $$('.adm-tabs .tab').forEach((b) => { b.onclick = () => go(b.dataset.s); });
 function go(s) {
   section = s;
   $$('.adm-tabs .tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.s === s)));
-  ({ resumo: viewResumo, usuarios: viewUsuarios, denuncias: viewDenuncias, verificacoes: viewVerificacoes, fotos: viewFotos, convites: viewConvites, encontros: viewEncontros, assinaturas: viewAssinaturas, auditoria: viewAuditoria })[s]();
+  ({ resumo: viewResumo, usuarios: viewUsuarios, denuncias: viewDenuncias, verificacoes: viewVerificacoes, fotos: viewFotos, convites: viewConvites, assinaturas: viewAssinaturas, auditoria: viewAuditoria })[s]();
 }
 const view = () => $('#view');
 function onErr(e) { if (e.status === 401 || e.status === 403) { me = null; showLogin('Sua sessão expirou. Entre novamente.'); } else toast(e.message); }
@@ -220,15 +220,6 @@ async function viewConvites() {
     view().innerHTML = `<div class="kpis"><div class="kpi"><span class="n">${r.totals.rewarded}</span><span class="l">Prêmios liberados</span></div><div class="kpi"><span class="n">${r.totals.pending}</span><span class="l">Aguardando</span></div><div class="kpi"><span class="n">${r.totals.rejected}</span><span class="l">Recusadas</span></div></div>
       <p class="note" style="margin:.8rem 0">Regras: o amigo ganha ${r.rules.inviteeDays} dias de Plus ao enviar a primeira foto; quem indicou ganha Destaque e, a cada ${r.rules.every} amigos, ${r.rules.referrerDays} dias de Plus. Tudo automático.</p>
       <div class="tablewrap"><table><thead><tr><th>Data</th><th>Quem indicou</th><th>Indicado</th><th>Situação</th></tr></thead><tbody>${r.items.map((i) => `<tr><td>${dt(i.created_at)}</td><td>${esc(i.referrer)}</td><td>${esc(i.invitee)}</td><td>${st[i.status] || i.status}${i.reason ? ' (' + (why[i.reason] || esc(i.reason)) + ')' : ''}</td></tr>`).join('') || '<tr><td colspan="4" class="empty-s">Nenhuma indicação ainda.</td></tr>'}</tbody></table></div>`;
-  } catch (e) { onErr(e); }
-}
-async function viewEncontros() {
-  view().innerHTML = '<p class="empty-s">Carregando...</p>';
-  try {
-    const r = await api('GET', '/api/admin/events');
-    const rows = r.items.map((e) => `<tr><td>${dt(e.startsAt)}</td><td>${esc(e.title)}<br><small>${esc(e.placeType)}${e.placeName ? ' - ' + esc(e.placeName) : ''}</small></td><td>${esc(e.city)}</td><td>${esc(e.host)}<br><small>${esc(e.hostEmail)}</small></td><td>${e.going}/${e.capacity}</td><td>${e.status === 'open' ? 'Aberto' : 'Cancelado'}</td><td>${e.status === 'open' ? `<button class="btn ghost" data-cancel="${e.id}" type="button">Cancelar</button>` : ''}</td></tr>`).join('');
-    view().innerHTML = `<p class="note">Encontros em grupo em lugares públicos. Cancele qualquer um que viole as regras.</p><div class="tablewrap"><table><thead><tr><th>Quando</th><th>Encontro</th><th>Cidade</th><th>Organizador</th><th>Vagas</th><th>Situação</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="7">Nenhum encontro ainda.</td></tr>'}</tbody></table></div>`;
-    $$('[data-cancel]').forEach((b) => { b.onclick = async () => { if (!confirm('Cancelar este encontro?')) return; try { await api('POST', '/api/admin/events/' + b.dataset.cancel + '/cancel'); viewEncontros(); } catch (e) { onErr(e); } }; });
   } catch (e) { onErr(e); }
 }
 /* ---------- assinaturas e auditoria ---------- */
