@@ -41,8 +41,6 @@ O sistema precisa de um servidor Node com **disco persistente**, porque guarda o
 3. Adicione um **disco persistente** (por exemplo montado em `/data`) e defina as variáveis abaixo.
 4. Aponte seu domínio para o serviço. O HTTPS é automático nesses provedores.
 
-Neste repositório, `render.yaml` na raiz configura o Render no plano grátis para esta pasta. **É apenas para demonstração:** o serviço gratuito não tem disco persistente e pode dormir; o banco, as contas e as fotos em `/tmp` podem ser apagados ao reiniciar ou substituir a instância. Não use para guardar dados reais. Ao criar/sincronizar, informe `ADMIN_EMAIL`, `ADMIN_PASSWORD` e `CPF_PEPPER` como variáveis secretas no Render. Para produção, use um plano com disco persistente montado em `/data` e defina `DATA_DIR=/data`.
-
 ### Opção B: VPS própria (Ubuntu)
 
 ```bash
@@ -185,3 +183,10 @@ Sem configuração, o cadastro só confere os dígitos do CPF. Para conferir nom
 Já embutido: bloqueio de ferramentas de raspagem conhecidas na API (`BOT_BLOCK=0` desliga), limite por usuário de buscas/radar (`SCRAPE_LIMIT`, padrão 150 por 10 min) e de fotos (`PHOTO_LIMIT`, padrão 600 por 10 min), recusa de foto embutida em outros sites (hotlink), bloqueio de 15 min após 6 senhas erradas (por e-mail + IP), dados pessoais com `Cache-Control: no-store`, Permissions-Policy, CSP só com scripts do próprio site, CPF guardado só como resumo HMAC. Opcional: `ADMIN_ALLOWED_IPS=1.2.3.4,5.6.7.8` faz o painel ADM e o login de administrador só funcionarem desses IPs.
 No deploy (Dockerfile) o JavaScript é minificado/embaralhado (`npm run build` gera `public-dist`) e o código legível do site não vai na imagem.
 **Limite honesto:** tudo o que o navegador baixa (HTML, CSS, JavaScript) pode ser visto e copiado por quem quiser: nenhuma tecnologia impede isso. O que protege o negócio é (1) o servidor (banco, regras, pagamentos e e-mails) nunca ser entregue, (2) os dados das pessoas estarem protegidos por login e limites, (3) os Termos proibirem cópia e raspagem, e (4) a comunidade e a marca. Peça registro da marca no INPI.
+
+## Privacidade da localização (Fase 2)
+- A posição guardada é arredondada para uma grade de ~500 m; nenhuma resposta traz latitude/longitude.
+- A distância mostrada e usada no filtro de raio tem um erro fixo de até 1,5 km (muda por par de pessoas e por quadra), para ninguém descobrir onde alguém está testando o limite do raio.
+- Trocar de localização: no máximo 3 vezes por dia (`LOC_MAX_PER_DAY`) e sem saltos de mais de 400 km em 6 horas.
+- `PAYMENTS_MODE=demo` é recusado quando `NODE_ENV=production`.
+- Denúncias guardam uma cópia das últimas 30 mensagens (tabela `report_evidence`); contas apagadas com suspensão ou denúncia aberta ficam com o CPF bloqueado para novo cadastro (tabela `cpf_blocked`, só o hash).

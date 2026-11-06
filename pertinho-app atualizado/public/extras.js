@@ -266,13 +266,13 @@ function startSafe() {
   if (!X.contact.phone) { toast('Cadastre antes um contato de confiança.'); return; }
   X.safe = { who: who.slice(0, 60), place: $('#xSfPlace').value, start: Date.now(), end: Date.now() + (+$('#xSfDur').value) * MIN, state: 'on', askAt: 0 };
   saveX(); try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch (e) { /* ignora */ }
-  renderSeg(); safeUI(); toast('Encontro seguro iniciado. Mantenha esta aba aberta: avisamos no fim do tempo.');
+  renderSeg(); safeUI(); toast('Encontro seguro iniciado. Mantenha esta aba aberta: ao fim do tempo pedimos o seu check-in aqui na tela.');
 }
 function safeTick() {
   const d = X.safe; if (!uid || !d) return;
   const el = $('[data-xleft]');
   if (d.state === 'on') {
-    if (Date.now() >= d.end) { d.state = 'ask'; d.askAt = Date.now(); saveX(); $('#xAskTxt').textContent = 'O tempo combinado para o encontro em ' + d.place + ' acabou. Responda em até 3 minutos ou avisamos seu contato.'; openModal('modalAsk'); document.title = '⚠ Está tudo bem? · Pertinho'; notify('Pertinho', 'Está tudo bem no encontro? Responda agora.'); safeUI(); }
+    if (Date.now() >= d.end) { d.state = 'ask'; d.askAt = Date.now(); saveX(); $('#xAskTxt').textContent = 'O tempo combinado para o encontro em ' + d.place + ' acabou. Responda em até 3 minutos ou mostramos o atalho para você avisar seu contato.'; openModal('modalAsk'); document.title = '⚠ Está tudo bem? · Pertinho'; notify('Pertinho', 'Está tudo bem no encontro? Responda agora.'); safeUI(); }
     else if (el) el.textContent = mmss(d.end - Date.now());
   } else if (d.state === 'ask') {
     const left = d.askAt + 3 * MIN - Date.now();

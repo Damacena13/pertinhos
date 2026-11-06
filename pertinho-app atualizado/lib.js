@@ -56,6 +56,15 @@ function haversine(lat1, lng1, lat2, lng2) {
 }
 // Guarda a posição numa grade de ~550 m para nunca armazenar o ponto exato do GPS.
 const snap = (v) => Math.round(v / 0.005) * 0.005;
+// Distância "borrada": soma um erro fixo de até 1,5 km que muda por par de pessoas e por quadra (~2 km) de quem olha.
+// Assim ninguém acha a posição exata de outra pessoa mudando de lugar e testando onde ela entra ou sai do raio.
+const DIST_NOISE_KM = 1.5;
+function fuzzyDistance(a, b) {
+  const d = haversine(a.lat, a.lng, b.lat, b.lng);
+  const cell = Math.floor(a.lat / 0.02) * 1009 + Math.floor(a.lng / 0.02);
+  const n = (hash32(Number(a.id) * 100003 + Number(b.id) * 7 + cell) % 2001) / 1000 - 1;
+  return Math.max(0.2, d + n * DIST_NOISE_KM);
+}
 function hash32(n) {
   let h = Math.imul(Number(n) ^ 0x9e3779b9, 0x85ebca6b);
   h ^= h >>> 13;
@@ -79,11 +88,11 @@ function distanceText(km) {
 /* ---------- planos e loja ---------- */
 const PLANS = {
   free: { id: 'free', name: 'Grátis', priceCents: 0, maxRadius: 10, dailyLikes: 30, superPerDay: 1, rewind: false, extraPhotos: false, seeLikes: false, verifiedFilter: false, invisible: false, boost: false },
-  plus: { id: 'plus', name: 'Plus', priceCents: 2990, maxRadius: 50, dailyLikes: Infinity, superPerDay: 5, rewind: true, extraPhotos: true, seeLikes: true, verifiedFilter: true, invisible: false, boost: false },
-  premium: { id: 'premium', name: 'Premium', priceCents: 4990, maxRadius: 100, dailyLikes: Infinity, superPerDay: 10, rewind: true, extraPhotos: true, seeLikes: true, verifiedFilter: true, invisible: true, boost: true },
+  plus: { id: 'plus', name: 'Plus', priceCents: 1990, maxRadius: 50, dailyLikes: Infinity, superPerDay: 5, rewind: true, extraPhotos: true, seeLikes: true, verifiedFilter: true, invisible: false, boost: false },
+  premium: { id: 'premium', name: 'Premium', priceCents: 2990, maxRadius: 100, dailyLikes: Infinity, superPerDay: 10, rewind: true, extraPhotos: true, seeLikes: true, verifiedFilter: true, invisible: true, boost: true },
 };
 // Valor total de cada ciclo, em centavos. Quem paga trimestral ou semestral ganha desconto.
-const PLAN_PRICES = { plus: { 1: 2990, 3: 6990, 6: 11990 }, premium: { 1: 4990, 3: 11670, 6: 19950 } };
+const PLAN_PRICES = { plus: { 1: 1990, 3: 4690, 6: 7990 }, premium: { 1: 2990, 3: 6990, 6: 11990 } };
 const CYCLE_MONTHS = [1, 3, 6];
 const priceOf = (plan, months) => (PLAN_PRICES[plan] && PLAN_PRICES[plan][months]) || null;
 // Compras avulsas, sem assinatura.
@@ -180,6 +189,6 @@ function cpfHash(cpf, pepper) {
 module.exports = {
   validCpfCnpj, validCpf, cpfHash,
   hashPassword, verifyPassword, DUMMY_HASH, newToken, sha256,
-  parseBirth, ageFrom, birthLimit, haversine, snap, cityPoint, distanceText, hash32,
+  parseBirth, ageFrom, birthLimit, haversine, fuzzyDistance, DIST_NOISE_KM, snap, cityPoint, distanceText, hash32,
   PLANS, PLAN_PRICES, CYCLE_MONTHS, priceOf, SHOP, FREE_CHAT_MESSAGES, CHAT_LIMITED, chatUnlocked, passActive, isOnline, boostActive, affinity, effectivePlan, clean, EMAIL_RE, cleanInterests, imageKind,
 };

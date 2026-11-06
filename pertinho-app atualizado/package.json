@@ -7,7 +7,7 @@
     "start": "node server.js",
     "dev": "PAYMENTS_MODE=demo DEMO_BOTS=1 DEMO_AUTOLIKE=1 node server.js",
     "seed:demo": "node seed-demo.js",
-    "test": "node test.js && node test-extras.js && node test-pix.js && node test-referral.js && node test-referral-verified.js && node test-events.js && node test-security.js && node test-geo.js && node test-cpf.js && node test-direct.js && node test-notify.js && node test-reset.js && node test-confirm.js",
+    "test": "node test.js && node test-extras.js && node test-pix.js && node test-referral.js && node test-referral-verified.js && node test-events.js && node test-security.js && node test-geo.js && node test-cpf.js && node test-direct.js && node test-notify.js && node test-reset.js && node test-confirm.js && node test-phase2.js",
     "build": "node build-public.js"
   },
   "keywords": [],

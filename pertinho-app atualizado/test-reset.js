@@ -45,19 +45,7 @@ const reg = (email, name, extra = {}) => ({ cpf: nextCpf(), email, password: 'se
 const photo = (field = 'photo') => { const f = new FormData(); f.append(field, new Blob([PNG], { type: 'image/png' }), 'x.png'); return f; };
 const dbq = () => new DatabaseSync(path.join(DATA_DIR, 'pertinho.db'));
 const one = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).get(...a); } finally { d.close(); } };
-const all = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
 const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(...a); } finally { d.close(); } };
-async function stopServer(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise((resolve) => {
-    const onClose = () => resolve();
-    child.once('close', onClose);
-    if (!child.kill()) {
-      child.removeListener('close', onClose);
-      resolve();
-    }
-  });
-}
 
 (async () => {
   const mails = [];
@@ -86,7 +74,7 @@ async function stopServer(child) {
       assert.ok(!(await fetch(BASE + '/api/auth/forgot', { method: 'POST', headers: { 'content-type': 'application/json', 'x-pertinho': '1' }, body: JSON.stringify({ email: 'ana@teste.com' }) }).then((x) => x.text())).includes(token));
     });
     await t('o banco guarda só o resumo do token, nunca o token', async () => {
-      const rows = all('SELECT token_hash FROM password_resets');
+      const rows = new DatabaseSync(path.join(DATA_DIR, 'pertinho.db')).prepare('SELECT token_hash FROM password_resets').all();
       assert.ok(rows.length >= 1); assert.ok(rows.every((r) => r.token_hash !== token && r.token_hash.length === 64));
     });
     await t('token errado ou senha curta são recusados', async () => {
@@ -124,13 +112,13 @@ async function stopServer(child) {
       assert.ok((await ADM.get('/api/admin/audit')).data.log.some((l) => l.action === 'resetLink'));
     });
     await t('admin não gera link para outro administrador; usuário comum não usa a rota', async () => {
-      const aid = one("SELECT id FROM users WHERE role='admin'").id;
+      const aid = new DatabaseSync(path.join(DATA_DIR, 'pertinho.db')).prepare("SELECT id FROM users WHERE role='admin'").get().id;
       assert.strictEqual((await ADM.post(`/api/admin/users/${aid}/action`, { action: 'resetLink' })).status, 400);
       assert.strictEqual((await new Client().post(`/api/admin/users/1/action`, { action: 'resetLink' })).status, 403);
     });
   } catch (e) { failed++; console.log('ERRO GERAL', e.message); }
-  await stopServer(srv);
-  await new Promise((resolve) => mailSrv.close(resolve));
+  srv.kill(); mailSrv.close();
+  await sleep(300);
   fs.rmSync(DATA_DIR, { recursive: true, force: true });
   console.log(`\n${passed} passaram, ${failed} falharam`);
   if (failed && process.env.SHOW_LOG) console.log('--- log do servidor ---\n' + srvLog);

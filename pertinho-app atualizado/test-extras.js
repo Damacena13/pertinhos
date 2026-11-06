@@ -61,8 +61,8 @@ const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(..
     await t('a API publica ciclos, preços, loja e o limite de mensagens grátis', async () => {
       const r = (await anon.get('/api/plans')).data;
       assert.deepStrictEqual(r.cycles, [1, 3, 6]);
-      assert.strictEqual(r.plans.find((p) => p.id === 'plus').prices['3'], 6990);
-      assert.strictEqual(r.plans.find((p) => p.id === 'premium').prices['6'], 19950);
+      assert.strictEqual(r.plans.find((p) => p.id === 'plus').prices['3'], 4690);
+      assert.strictEqual(r.plans.find((p) => p.id === 'premium').prices['6'], 11990);
       assert.deepStrictEqual(r.shop.map((x) => x.id).sort(), ['boost30m', 'boost90m', 'pass24h', 'photos10', 'photos3']);
       assert.strictEqual(r.freeChatMessages, 3);
       assert.strictEqual(r.plans.find((p) => p.id === 'premium').limits.maxRadius, 100);
@@ -191,7 +191,7 @@ const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(..
       const r = await U.post('/api/billing/checkout', { plan: 'plus', months: 3, amountCents: 1, priceCents: 1 });
       assert.strictEqual(r.status, 200);
       assert.ok(Math.abs(r.data.user.planUntil - (Date.now() + 90 * DAY)) < 60000);
-      assert.strictEqual(one("SELECT amount_cents c FROM subscriptions WHERE plan = 'plus' AND user_id = ? ORDER BY id DESC", r.data.user.id).c, 6990);
+      assert.strictEqual(one("SELECT amount_cents c FROM subscriptions WHERE plan = 'plus' AND user_id = ? ORDER BY id DESC", r.data.user.id).c, 4690);
       assert.strictEqual((await U.post('/api/billing/checkout', { plan: 'plus', months: 2 })).status, 400);
       assert.strictEqual((await U.post('/api/billing/checkout', { item: 'ouro' })).status, 400);
       assert.strictEqual((await U.post('/api/billing/checkout', { plan: 'plus', months: -3 })).status, 400);

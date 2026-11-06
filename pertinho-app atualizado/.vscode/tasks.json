@@ -1,0 +1,9 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Rodar testes", "type": "shell", "command": "npm test", "group": "test" },
+    { "label": "Rodar site local (modo teste)", "type": "shell", "command": "npm run dev", "isBackground": true },
+    { "label": "Enviar para o GitHub", "type": "shell", "command": "npm test && git add -A && git commit -m \"${input:mensagem}\" && git push", "problemMatcher": [] }
+  ],
+  "inputs": [{ "id": "mensagem", "type": "promptString", "description": "O que você mudou?" }]
+}

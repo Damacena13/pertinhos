@@ -41,17 +41,6 @@ async function t(name, fn) {
   catch (e) { failed++; console.log('  FALHOU ' + name + '\n         ' + (e.message || e).toString().split('\n')[0]); }
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-async function stopServer(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  await new Promise((resolve) => {
-    const onClose = () => resolve();
-    child.once('close', onClose);
-    if (!child.kill()) {
-      child.removeListener('close', onClose);
-      resolve();
-    }
-  });
-}
 
 async function waitUp() {
   for (let i = 0; i < 60; i++) { try { const r = await fetch(BASE + '/api/plans'); if (r.ok) return; } catch { /* ainda subindo */ } await sleep(250); }
@@ -328,7 +317,7 @@ function photoForm(buf = PNG, name = 'x.png', type = 'image/png') {
   } catch (e) {
     failed++; console.log('ERRO GERAL', e.message);
   } finally {
-    await stopServer(srv);
+    srv.kill();
     fs.rmSync(DATA_DIR, { recursive: true, force: true });
   }
   console.log(`\n${passed} passaram, ${failed} falharam`);

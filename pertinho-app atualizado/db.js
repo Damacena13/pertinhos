@@ -306,4 +306,10 @@ if (!matchCols.includes('accepted_at')) db.exec('ALTER TABLE matches ADD COLUMN 
 if (!userCols.includes('notify_email')) db.exec('ALTER TABLE users ADD COLUMN notify_email INTEGER NOT NULL DEFAULT 1');
 if (!userCols.includes('last_seen')) db.exec('ALTER TABLE users ADD COLUMN last_seen INTEGER');
 
+db.exec(`
+CREATE TABLE IF NOT EXISTS loc_changes (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, lat REAL NOT NULL, lng REAL NOT NULL, at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_loc_changes ON loc_changes(user_id, at);
+CREATE TABLE IF NOT EXISTS report_evidence (report_id INTEGER PRIMARY KEY REFERENCES reports(id) ON DELETE CASCADE, messages TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS cpf_blocked (cpf_hash TEXT PRIMARY KEY, reason TEXT NOT NULL, created_at INTEGER NOT NULL);
+`);
 module.exports = { db, DATA_DIR, UPLOAD_DIR };

@@ -1,0 +1,9 @@
+# Regras do projeto Pertinhos (para o Cline)
+- Responda em português, em linguagem simples: o dono é iniciante.
+- Node 22, Express 5, banco node:sqlite. Não troque de banco nem de framework sem pedir.
+- Antes de dizer que algo funciona, rode `npm test` e mostre o resultado. Nunca simule resultado.
+- Nunca coloque senhas, chaves ou o arquivo .env no Git. Segredos ficam só no painel da Render.
+- Não mude PAYMENTS_MODE para asaas nem use chaves de produção sem o dono autorizar.
+- Mudança no banco (db.js) exige aviso ao dono e cópia de segurança antes.
+- Fluxo: editar -> `npm test` -> commit -> push na branch main. O GitHub roda os testes e a Render publica sozinha se passarem.
+- Preços ficam em lib.js (PLANS, PLAN_PRICES, SHOP); se mudar, ajuste também os testes.

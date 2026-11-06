@@ -1,0 +1,30 @@
+# Render Blueprint: o Render lê este arquivo do GitHub e cria/atualiza o serviço sozinho.
+services:
+  - type: web
+    name: pertinhos
+    runtime: docker
+    region: oregon            # troque se o painel da Render oferecer outra região mais perto
+    plan: starter             # disco permanente exige plano pago (a partir de ~US$ 7/mês)
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/plans
+    autoDeployTrigger: checksPass   # só publica quando os testes do GitHub Actions passam
+    disk:
+      name: pertinho-data     # guarda banco, fotos e o segredo do CPF
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_DIR
+        value: /data
+      - key: TRUST_PROXY
+        value: "1"
+      - key: PAYMENTS_MODE
+        value: "off"          # só mude para asaas depois de testar no sandbox
+      # Segredos: você digita no painel da Render, nunca aqui no GitHub.
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: PUBLIC_URL
+        sync: false
