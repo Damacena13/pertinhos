@@ -3,7 +3,7 @@ const { chromium } = require('/opt/npm-tools/node_modules/playwright');
 const { spawn, spawnSync } = require('child_process');
 const fs = require('fs'), os = require('os'), path = require('path');
 
-const APP = '/home/claude/pertinho-app';
+const APP = __dirname;
 const OUT = '/tmp/claude-0/-home-claude/62333f27-3479-5f7f-b960-33ec7094fd9f/scratchpad';
 const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'pp-ui-'));
 const PORT = 3998, BASE = `http://127.0.0.1:${PORT}`;
@@ -54,6 +54,19 @@ const ok = (n, c, extra) => { results.push([n, !!c]); console.log((c ? '  ok    
     await page.click('#regForm button[type=submit]');
     await page.waitForSelector('#appView:not([hidden])');
     ok('depois do cadastro entra no app, na aba Perfil', (await page.getAttribute('#t-perfil', 'aria-selected')) === 'true');
+    console.log('\nConvite e cidade em lista de espera');
+    await page.waitForSelector('#inviteModal:not([hidden])', { timeout: 4000 });
+    const wa = await page.getAttribute('#invWa', 'href');
+    ok('após o cadastro abre o convite com mensagem pronta e link do WhatsApp', /^https:\/\/wa\.me\/\?text=/.test(wa) && decodeURIComponent(wa).includes('?ref='), wa);
+    await page.click('#inviteModal button[data-close].ghost');
+    ok('o convite fecha com "Agora não"', await page.isHidden('#inviteModal'));
+    await page.click('#t-descobrir');
+    await page.waitForSelector('#cityBanner:not([hidden]) .citybar');
+    ok('cidade com poucas pessoas mostra barra de progresso e quantas faltam', /Faltam \d+/.test(await page.textContent('#cityBanner')) && (await page.getAttribute('#cityBanner [role=progressbar]', 'aria-valuenow')) !== null);
+    await page.click('#cityInvite');
+    ok('"Chamar amigos" abre o convite', await page.isVisible('#inviteModal'));
+    await page.click('#inviteModal button[data-close].ghost');
+    await page.click('#t-perfil');
     console.log('\nIndicação');
     await page.waitForSelector('#refLink');
     const refLink = await page.inputValue('#refLink');

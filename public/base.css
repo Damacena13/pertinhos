@@ -244,3 +244,9 @@ footer .wrap{display:flex;gap:1rem 2rem;flex-wrap:wrap;justify-content:space-bet
 
 [hidden]{display:none!important}
 #radList li{justify-content:space-between}
+/* cidade em lista de espera */
+.citybar{display:grid;gap:.6rem;padding:1rem 1.1rem;margin-bottom:1rem;border:1px solid var(--line);border-radius:18px;background:var(--accent-soft);color:var(--ink)}
+.citybar p{margin:0}
+.citybar .bar{height:10px;border-radius:99px;background:var(--surface);overflow:hidden}
+.citybar .bar span{display:block;height:100%;background:var(--accent);border-radius:99px}
+.citybar .btn{justify-self:start}

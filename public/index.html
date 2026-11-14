@@ -139,6 +139,7 @@
         </div>
 
         <div class="panel" id="p-descobrir" role="tabpanel" aria-labelledby="t-descobrir">
+          <div id="cityBanner" hidden></div>
           <div class="discover">
             <div>
               <div class="deck" id="deck" aria-live="polite"></div>
@@ -253,6 +254,19 @@
   </div>
 </div>
 
+<div class="modal" id="inviteModal" role="dialog" aria-modal="true" aria-labelledby="invT" hidden>
+  <div class="mbox">
+    <button class="modal-x" type="button" data-close aria-label="Fechar">&times;</button>
+    <h2 id="invT">Chame seus amigos</h2>
+    <p class="note" id="invTxt">Quanto mais gente por perto, melhor para todo mundo.</p>
+    <p class="note" id="invMsg" style="background:var(--surface2);padding:.7rem;border-radius:12px"></p>
+    <div style="display:grid;gap:.6rem">
+      <a class="btn" id="invWa" target="_blank" rel="noopener">Enviar pelo WhatsApp</a>
+      <button class="btn ghost" id="invCopy" type="button">Copiar mensagem</button>
+      <button class="btn ghost" type="button" data-close>Agora não</button>
+    </div>
+  </div>
+</div>
 <div class="modal" id="authModal" role="dialog" aria-modal="true" aria-labelledby="authTitle" hidden>
   <div class="mbox wide">
     <button class="modal-x" type="button" data-close aria-label="Fechar">&times;</button>

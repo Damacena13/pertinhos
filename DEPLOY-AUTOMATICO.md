@@ -2,16 +2,25 @@
 
 Fluxo: você (ou o Cline) edita -> `npm test` -> push na branch `main` -> o GitHub roda os testes -> se passarem, a Render publica sozinha.
 
-## Uma vez só
-1. Instale no VS Code a extensão **Cline** (o VS Code já sugere ao abrir a pasta). Na configuração dela, escolha o modelo e cole a sua chave de API. O arquivo `.clinerules` já diz ao Cline as regras do projeto.
-2. No terminal da pasta do projeto: `git init`, `git add -A`, `git commit -m "primeira versão"`, `git branch -M main`, `git remote add origin https://github.com/Damacena13/pertinhos.git`, `git push -u origin main`. Confira antes que `.env` e `data/` NÃO aparecem em `git status` (o `.gitignore` já os exclui).
-3. Na Render: **New > Blueprint**, escolha o repositório. Ela lê o `render.yaml`. Preencha ADMIN_EMAIL, ADMIN_PASSWORD e PUBLIC_URL (os segredos ficam só no painel).
-4. A primeira publicação leva alguns minutos. Abra a URL e entre como administrador.
+## Acertos que precisam ser feitos no painel da Render (uma vez, serviço `pertinhos-oficial`)
+O painel não é alterado pelo código. Em **Settings**:
+1. **Health Check Path:** `/healthz`.
+2. **Auto-Deploy:** mude de "On Commit" para **"After CI Checks Pass"**. Assim um envio com teste quebrado não vai ao ar.
+3. **Build Command:** `npm ci --include=dev && npm run build` (gera o site minificado, que é o que é servido).
+4. **Environment:** confira que existem `NODE_ENV=production`, `TRUST_PROXY=1`, `PAYMENTS_MODE=off`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `CPF_PEPPER` (texto longo e aleatório, guarde uma cópia) e `PUBLIC_URL` (o endereço do site). **Sem `CPF_PEPPER` fixo, o segredo do CPF muda a cada reinício.** Não use `DEMO_BOTS`.
+5. **Dois serviços:** `pertinhos-demo` e `pertinhos-oficial` publicam o mesmo repositório. Suspenda ou apague o que não usa.
+
+## Plano grátis x usuários reais
+- No plano grátis não há disco: cada reinício ou publicação APAGA banco, fotos e contas. O painel ADM mostra um aviso vermelho nessa situação.
+- Para usuários reais: plano pago com disco. Use `render.paid.yaml.example` (renomeie para `render.yaml`) e aponte `DATA_DIR=/data`.
+
+## Uma vez só no seu computador
+1. Instale no VS Code a extensão **Cline** e configure o modelo e a chave. O arquivo `.clinerules` diz ao Cline as regras do projeto.
+2. `git remote -v` deve apontar para `https://github.com/Damacena13/pertinhos.git`.
 
 ## No dia a dia
-Mude o código (você ou o Cline), rode a tarefa **Enviar para o GitHub** (Terminal > Executar tarefa). Ela roda os testes, faz commit e push. Veja o andamento na aba Actions do GitHub e no painel da Render.
+Tarefa do VS Code **Enviar para o GitHub** (Terminal > Executar tarefa): roda os testes, faz commit e push. Acompanhe em Actions (GitHub) e no painel da Render.
 
 ## Atenção
-- Disco permanente na Render só existe em plano pago. Sem ele, cada publicação APAGA banco, fotos e o segredo do CPF. Não use o plano grátis com usuários reais.
-- Mantenha PAYMENTS_MODE=off até testar o Asaas no sandbox.
-- Se a Render deixar de publicar depois de um teste falhar, é o esperado: corrija e envie de novo.
+- Mantenha `PAYMENTS_MODE=off` até testar o Asaas no sandbox. O modo `demo` é recusado em produção.
+- Segredos só no painel da Render, nunca no GitHub.
