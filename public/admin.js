@@ -56,10 +56,13 @@ async function viewResumo() {
   view().innerHTML = '<p class="empty-s">Carregando...</p>';
   try {
     const s = await api('GET', '/api/admin/stats');
+    const fn = await api('GET', '/api/admin/funnel?days=30').catch(() => null);
     setBadge(s.openReports); { const vb = $('#verBadge'); vb.hidden = !s.pendingVerifications; vb.textContent = s.pendingVerifications; }
     const max = Math.max(1, ...s.signups.map((d) => d.count));
     view().innerHTML = `
     ${s.paymentsMode === 'asaas' ? (s.asaasEnv === 'sandbox' ? '<p class="banner" style="margin-bottom:1rem">Pix via Asaas em modo de TESTE (sandbox): nenhum pagamento é real. Para valer dinheiro, troque ASAAS_ENV para production e use a chave de produção.</p>' : '<p class="banner teal" style="margin-bottom:1rem">Pix via Asaas em produção.</p>') + (s.webhooksFailed ? `<p class="banner" style="margin-bottom:1rem">${s.webhooksFailed} aviso(s) de pagamento do Asaas falharam ao processar. Veja a aba Assinaturas e use "Conferir no Asaas".</p>` : '') : s.paymentsMode !== 'demo' ? '<p class="banner" style="margin-bottom:1rem">Pagamentos desligados neste servidor. Os planos pagos só podem ser concedidos manualmente por aqui, na ficha de cada usuário.</p>' : '<p class="banner" style="margin-bottom:1rem">Modo de demonstração dos pagamentos ligado: qualquer pessoa ativa planos sem pagar. Não use assim em produção.</p>'}
+    ${s.storageEphemeral ? '<p class="banner" style="margin-bottom:1rem;border-color:var(--accent)"><strong>Atenção: sem disco permanente.</strong> Usuários, fotos e o segredo do CPF serão APAGADOS no próximo reinício ou publicação. Use esta hospedagem só para teste, ou ative um disco pago na Render.</p>' : ''}
+    ${s.demoBots ? '<p class="banner" style="margin-bottom:1rem">Atenção: DEMO_BOTS está ligado. Perfis de demonstração respondem como se fossem pessoas. Desligue antes de abrir para o público.</p>' : ''}
     <div class="kpis">
       <div class="kpi"><span class="n">${s.users}</span><span class="l">Usuários</span></div>
       <div class="kpi"><span class="n">${s.new7}</span><span class="l">Novos em 7 dias</span></div>
@@ -79,7 +82,10 @@ async function viewResumo() {
       <div class="box"><h3>Cidades com mais usuários</h3>
         <div class="tablewrap" style="border:0"><table><tbody>${s.topCities.map((c) => `<tr><td>${esc(c.city)}</td><td class="num">${c.c}</td></tr>`).join('') || '<tr><td>Sem dados</td></tr>'}</tbody></table></div>
         <p class="hint" style="margin-top:.8rem">Suspensos: ${s.suspended} · Verificados: ${s.verified}</p></div>
-    </div>`;
+    </div>
+    ${fn ? `<div class="box" style="margin-top:1rem"><h3>Funil dos cadastros dos últimos ${fn.days} dias</h3>
+      <div class="tablewrap" style="border:0"><table><thead><tr><th>Passo</th><th class="num">Pessoas</th><th class="num">% dos cadastros</th><th class="num">% do passo anterior</th></tr></thead><tbody>${fn.steps.map((x) => `<tr><td>${esc(x.label)}</td><td class="num">${x.n}</td><td class="num">${x.pctOfSignups}%</td><td class="num">${x.pctOfPrev}%</td></tr>`).join('')}</tbody></table></div>
+      <p class="hint">Não conta contas de demonstração nem administradores.</p></div>` : ''}`;
   } catch (e) { onErr(e); }
 }
 function setBadge(n) { const b = $('#repBadge'); b.hidden = !n; b.textContent = n; }

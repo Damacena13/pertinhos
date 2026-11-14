@@ -257,11 +257,36 @@ $('#regForm').addEventListener('submit', async (e) => {
     $('#rPass').value = ''; $('#rCpf').value = ''; if (r.referral) { try { localStorage.removeItem('pp_ref'); } catch (e) { /* ok */ } } await onLoggedIn(r.user, true);
   } catch (err) { $('#rErr').textContent = err.message; }
 });
+/* ---------- convite e cidade em lista de espera ---------- */
+async function openInvite(cityName) {
+  try {
+    const r = await api('GET', '/api/me/referral');
+    const place = cityName || (S.user && S.user.cityName) || 'sua cidade';
+    const msg = `Estou no Pertinhos, o app de encontros por proximidade em ${place}. Entre pelo meu convite e ganhe ${r.rules.inviteeDays} dias de Plus: ${r.link}`;
+    $('#invMsg').textContent = msg;
+    $('#invWa').href = 'https://wa.me/?text=' + encodeURIComponent(msg);
+    const mark = () => { api('POST', '/api/me/funnel', { event: 'invite_shared' }).catch(() => {}); };
+    $('#invWa').onclick = mark;
+    $('#invCopy').onclick = async () => { try { await navigator.clipboard.writeText(msg); toast('Mensagem copiada.'); mark(); } catch (e) { toast('Selecione e copie o texto.'); } };
+    openModal('inviteModal');
+  } catch (e) { toast('Não foi possível gerar o convite agora.'); }
+}
+async function loadCityBanner() {
+  const box = $('#cityBanner'); if (!box) return;
+  try {
+    const c = await api('GET', '/api/city-status');
+    if (!c.known || c.open) { box.hidden = true; box.innerHTML = ''; return; }
+    const pct = Math.min(100, Math.round((c.nearby / c.needed) * 100));
+    box.hidden = false;
+    box.innerHTML = `<div class="citybar"><p><strong>${esc(c.cityName)} ainda está abrindo.</strong> Já são ${c.nearby} de ${c.needed} pessoas num raio de ${c.km} km. Faltam ${c.missing}.</p><div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="${c.needed}" aria-valuenow="${c.nearby}"><span style="width:${pct}%"></span></div><button class="btn small" id="cityInvite" type="button">Chamar amigos</button></div>`;
+    $('#cityInvite').onclick = () => openInvite(c.cityName);
+  } catch (e) { box.hidden = true; }
+}
 async function onLoggedIn(user, isNew) {
   S.user = user; $('#authModal').hidden = true;
   applyUser();
   setTab(isNew ? 'perfil' : 'descobrir');
-  if (isNew) toast('Conta criada! Adicione uma foto principal para aparecer para as outras pessoas.');
+  if (isNew) { toast('Conta criada! Adicione uma foto principal para aparecer para as outras pessoas.'); setTimeout(() => openInvite(), 700); }
   window.scrollTo({ top: 0 });
 }
 async function logout() {
@@ -309,7 +334,7 @@ function setTab(t) {
   $$('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
   ['descobrir', 'mapa', 'matches', 'jogos', 'seguranca', 'perfil', 'planos'].forEach((n) => { $('#p-' + n).hidden = n !== t; });
   $('#filters').style.display = (t === 'descobrir' || t === 'mapa') ? '' : 'none';
-  if (t === 'descobrir') loadDeck();
+  if (t === 'descobrir') { loadDeck(); loadCityBanner(); }
   if (t === 'mapa') { loadDeck().then(renderMap); loadRings(); renderSpots(); loadRadar(); }
   if (t === 'matches') loadMatches(true);
   if (t === 'perfil') renderProfile();

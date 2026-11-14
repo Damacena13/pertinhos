@@ -190,3 +190,8 @@ No deploy (Dockerfile) o JavaScript é minificado/embaralhado (`npm run build` g
 - Trocar de localização: no máximo 3 vezes por dia (`LOC_MAX_PER_DAY`) e sem saltos de mais de 400 km em 6 horas.
 - `PAYMENTS_MODE=demo` é recusado quando `NODE_ENV=production`.
 - Denúncias guardam uma cópia das últimas 30 mensagens (tabela `report_evidence`); contas apagadas com suspensão ou denúncia aberta ficam com o CPF bloqueado para novo cadastro (tabela `cpf_blocked`, só o hash).
+
+## Crescimento (cidade em lista de espera, convite, funil)
+- **Cidade aberta:** conta pessoas ativas, visíveis e com foto principal num raio de `CITY_OPEN_KM` (padrão 30 km) do centro da cidade. Com menos de `CITY_OPEN_MIN` (padrão 100), o Descobrir mostra "faltam X" com barra de progresso e o botão "Chamar amigos". `GET /api/city-status` devolve só números.
+- **Convite:** logo após o cadastro (e pelo botão "Chamar amigos") abre uma mensagem pronta com o link de indicação e atalho para o WhatsApp.
+- **Funil (painel ADM, aba Resumo):** cadastro, foto, primeira curtida, primeiro match, primeira mensagem, convite compartilhado, amigo que entrou. Não conta contas de demonstração.

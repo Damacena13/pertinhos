@@ -7,7 +7,7 @@ const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
-const { db, UPLOAD_DIR } = require('./db');
+const { db, UPLOAD_DIR, DATA_DIR } = require('./db');
 const L = require('./lib');
 const cupid = require('./cupid');
 const grants = require('./grants')({ db, L });
@@ -79,6 +79,8 @@ app.use('/api', (req, res, next) => {
   if (!req.path.startsWith('/photos/') && req.path !== '/cities' && req.path !== '/plans') res.set('Cache-Control', 'no-store');
   next();
 });
+// Verificação de saúde para a hospedagem (fora de /api, para o bloqueio de robôs não derrubar o teste).
+app.get('/healthz', (req, res) => { try { db.prepare('SELECT 1').get(); res.type('text').send('ok'); } catch (e) { res.status(503).type('text').send('erro'); } });
 // Barra ferramentas de raspagem conhecidas (não pega quem disfarça o User-Agent: por isso há também limites por usuário).
 const BOT_UA = /(curl|wget|python-requests|python-urllib|scrapy|httpx|aiohttp|libwww|go-http-client|okhttp|java\/|httrack|phantomjs|selenium|puppeteer|colly|node-fetch|axios|mechanize|postmanruntime)/i;
 app.use('/api', (req, res, next) => {
@@ -682,6 +684,30 @@ app.get('/api/discover', requireAuth, limitScrape, (req, res) => {
 });
 
 // Radar do Brasil: quantas pessoas há por estado e, escolhendo um estado, por cidade. Só números, nunca perfis.
+// Cidade aberta ou em lista de espera: conta só números de gente por perto (a mesma regra do Descobrir: ativa, visível, com foto principal).
+const CITY_OPEN_MIN = Number(process.env.CITY_OPEN_MIN) || 100;
+const CITY_OPEN_KM = Number(process.env.CITY_OPEN_KM) || 30;
+app.get('/api/city-status', requireAuth, limitScrape, (req, res) => {
+  const me = req.user;
+  const city = cityById(req.query.cityId || me.city_id);
+  if (!city) return res.json({ known: false });
+  const dLat = CITY_OPEN_KM / 111, dLng = CITY_OPEN_KM / (111 * Math.max(0.2, Math.cos((city.lat * Math.PI) / 180)));
+  const rows = db.prepare(`SELECT u.lat, u.lng FROM users u WHERE u.role = 'user' AND u.status = 'active' AND u.invisible = 0${VIS}
+    AND u.lat BETWEEN ? AND ? AND u.lng BETWEEN ? AND ?
+    AND EXISTS (SELECT 1 FROM photos p WHERE p.user_id = u.id AND p.is_main = 1 AND p.status = 'ok')`).all(city.lat - dLat, city.lat + dLat, city.lng - dLng, city.lng + dLng);
+  const nearby = rows.filter((r) => L.haversine(city.lat, city.lng, r.lat, r.lng) <= CITY_OPEN_KM).length;
+  res.json({ known: true, cityName: `${city.name} - ${city.uf}`, nearby, needed: CITY_OPEN_MIN, km: CITY_OPEN_KM, open: nearby >= CITY_OPEN_MIN, missing: Math.max(0, CITY_OPEN_MIN - nearby) });
+});
+
+// Marca passos do funil que o servidor não consegue ver sozinho (hoje, só "convite compartilhado").
+const FUNNEL_CLIENT_EVENTS = ['invite_shared'];
+app.post('/api/me/funnel', requireAuth, (req, res) => {
+  const ev = String(req.body?.event || '');
+  if (!FUNNEL_CLIENT_EVENTS.includes(ev)) throw bad('Evento inválido.');
+  db.prepare('INSERT OR IGNORE INTO funnel_events (user_id, event, at) VALUES (?,?,?)').run(req.user.id, ev, now());
+  res.json({ ok: true });
+});
+
 app.get('/api/radar', requireAuth, limitScrape, (req, res) => {
   const uf = String(req.query.uf || '').toUpperCase();
   const base = "FROM users u WHERE u.role = 'user' AND u.status = 'active' AND u.city_id IS NOT NULL" + VIS;
@@ -1042,6 +1068,29 @@ admin.get('/referrals', (req, res) => {
   res.json({ totals: { pending: n('pending'), rewarded: n('rewarded'), rejected: n('rejected') }, rules: referrals.RULES, items: rows });
 });
 
+// Funil: de quantos cadastros chegam a cada passo. Ignora contas de demonstração e de administrador.
+admin.get('/funnel', (req, res) => {
+  const days = Math.min(365, Math.max(1, Number(req.query.days) || 30));
+  const since = now() - days * DAY;
+  const base = "FROM users u WHERE u.role = 'user' AND u.is_demo = 0 AND u.created_at >= ?";
+  const c = (extra) => db.prepare(`SELECT COUNT(*) c ${base} ${extra}`).get(since).c;
+  const raw = [
+    ['Cadastro', c('')],
+    ['Enviou foto principal', c("AND EXISTS (SELECT 1 FROM photos p WHERE p.user_id = u.id AND p.is_main = 1 AND p.status = 'ok')")],
+    ['Deu a primeira curtida', c('AND EXISTS (SELECT 1 FROM swipes s WHERE s.from_id = u.id)')],
+    ['Teve o primeiro match', c('AND EXISTS (SELECT 1 FROM matches m WHERE m.a_id = u.id OR m.b_id = u.id)')],
+    ['Mandou a primeira mensagem', c('AND EXISTS (SELECT 1 FROM messages x WHERE x.sender_id = u.id)')],
+    ['Compartilhou o convite', c("AND EXISTS (SELECT 1 FROM funnel_events f WHERE f.user_id = u.id AND f.event = 'invite_shared')")],
+    ['Trouxe um amigo que entrou', c("AND EXISTS (SELECT 1 FROM referrals r WHERE r.referrer_id = u.id)")],
+  ];
+  const total = raw[0][1];
+  res.json({ days, steps: raw.map(([label, n], i) => ({ label, n, pctOfSignups: total ? Math.round((n / total) * 1000) / 10 : 0, pctOfPrev: i === 0 ? 100 : (raw[i - 1][1] ? Math.round((n / raw[i - 1][1]) * 1000) / 10 : 0) })) });
+});
+
+// Na Render, sem disco permanente o banco e as fotos somem a cada publicação ou reinício: o painel avisa.
+function storageEphemeral() {
+  try { return process.env.RENDER === 'true' && fs.statSync(DATA_DIR).dev === fs.statSync(__dirname).dev; } catch (e) { return false; }
+}
 admin.get('/stats', (req, res) => {
   const d7 = now() - 7 * 86400000;
   const one = (sql, ...a) => db.prepare(sql).get(...a).c;
@@ -1064,7 +1113,7 @@ admin.get('/stats', (req, res) => {
     openReports: one("SELECT COUNT(*) c FROM reports WHERE status='open'"),
     pendingVerifications: one("SELECT COUNT(*) c FROM verifications WHERE status='pending'"),
     paying: byPlan.reduce((s, r) => s + r.c, 0),
-    byPlan, mrrCents: mrr, paymentsMode: PAYMENTS, asaasEnv: asaasClient ? asaasClient.env : null,
+    byPlan, mrrCents: mrr, paymentsMode: PAYMENTS, storageEphemeral: storageEphemeral(), demoBots: DEMO_BOTS, asaasEnv: asaasClient ? asaasClient.env : null,
     pixPending: one("SELECT COUNT(*) c FROM payments WHERE status = 'pending'"),
     webhooksFailed: one("SELECT COUNT(*) c FROM webhook_events WHERE status = 'failed'"),
     topCities: db.prepare("SELECT COALESCE(city_name,'Sem cidade') AS city, COUNT(*) c FROM users WHERE role='user' GROUP BY city_name ORDER BY c DESC LIMIT 8").all(),

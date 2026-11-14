@@ -310,6 +310,7 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS loc_changes (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, lat REAL NOT NULL, lng REAL NOT NULL, at INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_loc_changes ON loc_changes(user_id, at);
 CREATE TABLE IF NOT EXISTS report_evidence (report_id INTEGER PRIMARY KEY REFERENCES reports(id) ON DELETE CASCADE, messages TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS funnel_events (user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, event TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (user_id, event));
 CREATE TABLE IF NOT EXISTS cpf_blocked (cpf_hash TEXT PRIMARY KEY, reason TEXT NOT NULL, created_at INTEGER NOT NULL);
 `);
 module.exports = { db, DATA_DIR, UPLOAD_DIR };
