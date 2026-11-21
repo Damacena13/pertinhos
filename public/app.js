@@ -306,6 +306,7 @@ function applyUser() {
   $('#publicView').hidden = !!u; $('#appView').hidden = !u;
   $('#hdrUser').classList.toggle('on', !!u);
   if (!u) { stopPolling(); if (window.PP && PP.onUser) PP.onUser(null); return; }
+  renderLocBar();
   const main = u.photos.find((p) => p.isMain);
   $('#hdrName').textContent = u.name;
   $('#hdrAv').className = 'av' + (main ? ' photo' : '');
@@ -375,20 +376,32 @@ async function loadDeck() {
   loadLikes();
 }
 function cardHtml(p, back) {
-  const photo = p.mainPhotoId ? `<img src="/api/photos/${Number(p.mainPhotoId)}" alt="Foto de ${esc(p.name)}" draggable="false">` : '';
-  let gal = '';
-  if (p.extraPhotoIds.length) gal = p.extraPhotoIds.map((id, i) => `<button type="button" class="thumb" data-gal="${p.id}" data-i="${i + 1}" aria-label="Abrir foto ${i + 2} de ${esc(p.name)}"><img src="/api/photos/${Number(id)}" alt=""></button>`).join('') + `<span class="galnote">${p.extraPhotoIds.length} fotos extras</span>`;
-  else if (p.extraLocked) gal = Array.from({ length: Math.min(p.extraCount, 4) }, (_, i) => `<button type="button" class="thumb lock" data-lock="1" aria-label="Foto extra de ${esc(p.name)} bloqueada. Disponível nos planos pagos"><span class="ph" style="background:linear-gradient(150deg,${color(hue(p.id) + i * 38, 46)},${color(hue(p.id) + i * 38 + 60, 28)})"></span>${LOCK}</button>`).join('') + `<span class="galnote">Ver +${p.extraCount} fotos com plano</span>`;
-  return `<article class="card${back ? ' back' : ''}" data-id="${p.id}" aria-label="${esc(p.name)}, ${p.age} anos">
-    <div class="photo" style="background:linear-gradient(160deg,${color(hue(p.id), 44)},${color(hue(p.id) + 50, 26)})">${photo}</div>
-    <span class="stamp l">CURTI</span><span class="stamp p">PASSO</span>
-    <div class="info">${gal ? `<div class="gal" data-nodrag>${gal}</div>` : ''}
+  const ids = [p.mainPhotoId, ...p.extraPhotoIds].filter(Boolean);
+  const lockedN = p.extraLocked ? Math.min(p.extraCount, 4) : 0;
+  const total = Math.max(1, ids.length + lockedN);
+  const imgs = ids.map((id, i) => `<img class="pimg${i ? '' : ' on'}" data-i="${i}" src="/api/photos/${Number(id)}" alt="Foto ${i + 1} de ${esc(p.name)}" draggable="false"${i ? ' loading="lazy"' : ''}>`).join('');
+  const bar = total > 1 ? `<div class="pbar" aria-hidden="true">${Array.from({ length: total }, (_, i) => `<i class="${i === 0 ? 'on' : ''}${i >= ids.length ? ' lock' : ''}"></i>`).join('')}</div>` : '';
+  const more = lockedN ? `<span class="galnote">Toque na direita da foto: +${p.extraCount} fotos com plano</span>` : (ids.length > 1 ? '<span class="galnote">Toque nas laterais para ver mais fotos</span>' : '');
+  return `<article class="card${back ? ' back' : ''}" data-id="${p.id}" data-n="${ids.length}" data-total="${total}" aria-label="${esc(p.name)}, ${p.age} anos">
+    <div class="photo" style="background:linear-gradient(160deg,${color(hue(p.id), 44)},${color(hue(p.id) + 50, 26)})">${imgs}</div>
+    ${bar}<span class="stamp l">CURTI</span><span class="stamp p">PASSO</span>
+    <div class="info">
       <div class="meta"><span class="dist">${esc(p.distanceText)}</span>${p.verified ? '<span class="chip teal" style="background:rgba(255,255,255,.9)">Verificado</span>' : ''}${p.premium ? '<span class="chip pink">Em destaque</span>' : ''}</div>
       <h3>${esc(p.name)}, ${p.age}</h3>
       <p class="meta" style="opacity:.85">${esc(p.cityName || '')}</p>
       <p class="bio">${esc(p.bio)}</p>
       <div class="tags">${p.interests.map((t) => `<span>${esc(t)}</span>`).join('')}</div>
+      ${more}
     </div></article>`;
+}
+// Passa a foto do cartão (toque na direita = próxima, na esquerda = anterior), como no Tinder.
+function showPhoto(card, i) {
+  const n = Number(card.dataset.n), total = Number(card.dataset.total);
+  if (i < 0 || i >= total) { card.classList.add('nudge'); setTimeout(() => card.classList.remove('nudge'), 220); return; }
+  if (i >= n) return paywall('Você vê a foto principal. As outras fotos ficam disponíveis para assinantes do Plus e do Premium.');
+  card.querySelectorAll('.pimg').forEach((im) => im.classList.toggle('on', Number(im.dataset.i) === i));
+  card.querySelectorAll('.pbar i').forEach((b, k) => b.classList.toggle('on', k === i));
+  card.dataset.pi = String(i);
 }
 const LOCK = '<span class="lk"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span>';
 const deck = $('#deck');
@@ -404,11 +417,32 @@ function renderDeck() {
   } else {
     deck.innerHTML = (list[1] ? cardHtml(list[1], true) : '') + cardHtml(list[0], false);
     bindDrag(deck.querySelector('.card:not(.back)'));
-    bindGal(deck);
   }
   $('#bPass').disabled = $('#bLike').disabled = $('#bMsg').disabled = !list.length;
   const left = meta.likesLeft;
   $('#deckNote').textContent = left == null ? 'Arraste o cartão para a direita para curtir e para a esquerda para passar.' : `Arraste para curtir ou passar. Você tem ${left} curtida${left === 1 ? '' : 's'} nas próximas 24 horas.`;
+}
+function renderLocBar() {
+  if (!S.user || !$('#locTxt')) return;
+  $('#locTxt').textContent = 'Perto de ' + (S.user.cityName || 'você') + (S.user.locSource === 'gps' ? ' · por GPS' : '');
+}
+let gpsBusy = false;
+// Pega o GPS na hora. O servidor arredonda para uma grade de ~500 m: ninguém vê o ponto exato.
+function useGps(done) {
+  if (gpsBusy) return;
+  if (!navigator.geolocation) return toast('Este navegador não oferece localização.');
+  gpsBusy = true; toast('Pedindo sua localização atual...');
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    try {
+      const r = await api('POST', '/api/me/location', { lat: pos.coords.latitude, lng: pos.coords.longitude });
+      S.user = r.user; applyUser(); toast('Localização atualizada. Mostramos só uma área aproximada (~500 m).');
+      if (done) done();
+      await loadDeck();
+    } catch (e) { fail(e); } finally { gpsBusy = false; }
+  }, (err) => {
+    gpsBusy = false;
+    toast(err && err.code === 1 ? 'Permissão negada. Libere a localização no cadeado do navegador ou escolha a cidade no Perfil.' : 'Não foi possível obter a localização agora. Escolha sua cidade no Perfil.');
+  }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
 }
 function renderNear() {
   const list = S.deck;
@@ -416,18 +450,25 @@ function renderNear() {
   $('#nearSub').textContent = 'Perto de ' + (S.user.cityName || 'você') + ', da mais próxima para a mais distante.';
   $('#nearList').innerHTML = list.slice(0, 6).map((p) => `<li>${avatarHtml(p)}<span class="grow"><strong>${esc(p.name)}, ${p.age}</strong><small>${esc(p.interests.slice(0, 2).join(' · ') || p.cityName || '')}</small></span><span class="mono" style="font-size:.85rem">${p.distanceKm} km</span></li>`).join('') || '<li><span class="note">Nenhuma pessoa nova neste raio. Amplie o raio ou ajuste os filtros.</span></li>';
 }
-function bindGal(root) {
-  root.querySelectorAll('[data-gal]').forEach((b) => { b.onclick = () => { const p = S.deck.find((x) => x.id === Number(b.dataset.gal)); if (p) openLight(p, Number(b.dataset.i)); }; });
-  root.querySelectorAll('[data-lock]').forEach((b) => { b.onclick = () => paywall('Você vê a foto principal. As outras fotos ficam disponíveis para assinantes do Plus e do Premium.'); });
-}
 function bindDrag(card) {
   if (!card) return;
-  let sx = 0, dx = 0, drag = false;
+  let sx = 0, dx = 0, drag = false, t0 = 0;
   const sl = card.querySelector('.stamp.l'), sp = card.querySelector('.stamp.p');
-  card.addEventListener('pointerdown', (e) => { if (e.target.closest && e.target.closest('[data-nodrag]')) return; drag = true; sx = e.clientX; dx = 0; try { card.setPointerCapture(e.pointerId); } catch (x) { /* ignora */ } card.style.transition = 'none'; });
+  card.addEventListener('pointerdown', (e) => { drag = true; sx = e.clientX; dx = 0; t0 = Date.now(); try { card.setPointerCapture(e.pointerId); } catch (x) { /* ignora */ } card.style.transition = 'none'; });
   card.addEventListener('pointermove', (e) => { if (!drag) return; dx = e.clientX - sx; card.style.transform = `translateX(${dx}px) rotate(${dx / 20}deg)`; sl.style.opacity = Math.min(1, Math.max(0, dx / 110)); sp.style.opacity = Math.min(1, Math.max(0, -dx / 110)); });
-  const end = () => { if (!drag) return; drag = false; card.style.transition = ''; if (dx > 110) act('like'); else if (dx < -110) act('pass'); else { card.style.transform = ''; sl.style.opacity = 0; sp.style.opacity = 0; } dx = 0; };
-  card.addEventListener('pointerup', end); card.addEventListener('pointercancel', end);
+  const end = (e, cancelled) => {
+    if (!drag) return; drag = false; card.style.transition = '';
+    if (dx > 110) act('like'); else if (dx < -110) act('pass');
+    else {
+      card.style.transform = ''; sl.style.opacity = 0; sp.style.opacity = 0;
+      if (!cancelled && Math.abs(dx) < 8 && Date.now() - t0 < 450 && e) { // toque: passa a foto
+        const r = card.getBoundingClientRect(), cur = Number(card.dataset.pi || 0);
+        showPhoto(card, e.clientX - r.left > r.width * 0.35 ? cur + 1 : cur - 1);
+      }
+    }
+    dx = 0;
+  };
+  card.addEventListener('pointerup', (e) => end(e, false)); card.addEventListener('pointercancel', (e) => end(e, true));
 }
 let acting = false;
 async function act(kind, profile) {
@@ -450,6 +491,7 @@ async function act(kind, profile) {
     fail(e);
   } finally { acting = false; }
 }
+$('#locBtn').onclick = () => useGps();
 $('#bPass').onclick = () => act('pass');
 let dmTarget = null;
 $('#bMsg').onclick = () => {
@@ -732,13 +774,7 @@ function renderProfile() {
     } catch (e) { if (e.status === 402) { $('#pInvis').checked = false; } $('#pErr').textContent = e.message; }
   };
   $('#pCitySave').onclick = async () => { try { const r = await api('POST', '/api/me/location', { cityId: $('#pCity').value }); S.user = r.user; applyUser(); renderProfile(); toast('Cidade atualizada.'); } catch (e) { fail(e); } };
-  $('#pGps').onclick = () => {
-    if (!navigator.geolocation) return toast('Este navegador não oferece localização.');
-    toast('Pedindo permissão de localização...');
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      try { const r = await api('POST', '/api/me/location', { lat: pos.coords.latitude, lng: pos.coords.longitude }); S.user = r.user; applyUser(); renderProfile(); toast('Localização atualizada.'); } catch (e) { fail(e); }
-    }, () => toast('Não foi possível obter a localização. Escolha sua cidade na lista.'), { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 });
-  };
+  $('#pGps').onclick = () => useGps(renderProfile);
   $('#pFile').onchange = async function () {
     const f = this.files[0]; this.value = ''; $('#phErr').textContent = '';
     if (!f) return;

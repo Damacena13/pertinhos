@@ -72,6 +72,19 @@ const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(..
       const g = (await A.post('/api/me/location', { lat: -3.1190, lng: -60.0217 })).data.user; assert.strictEqual(g.cityName, 'Manaus - AM');
       assert.strictEqual((await A.post('/api/me/location', { cityId: 'nao-existe-xx' })).status, 400);
     });
+    await t('o GPS na hora é guardado arredondado em ~500 m, nunca o ponto exato', async () => {
+      const B = new Client(); await B.post('/api/auth/register', { cpf: nextCpf(), email: 'gps@teste.com', password: 'senha-forte-123', name: 'Gabi', birthDate: '1994-04-10', gender: 'f', seeking: 'all', cityId: 'manaus-am', bio: 'x', terms: true, interests: [] });
+      const exact = { lat: -3.11904771, lng: -60.02171893 };
+      const r = await B.post('/api/me/location', exact); assert.strictEqual(r.status, 200);
+      assert.strictEqual(r.data.user.locSource, 'gps');
+      const row = one("SELECT lat, lng FROM users WHERE email = 'gps@teste.com'");
+      assert.notStrictEqual(row.lat, exact.lat); assert.notStrictEqual(row.lng, exact.lng);
+      const km = (a, b, c, d) => { const R = 6371, rad = Math.PI / 180, x = (d - b) * rad * Math.cos(((a + c) / 2) * rad), y = (c - a) * rad; return R * Math.hypot(x, y); };
+      const off = km(exact.lat, exact.lng, row.lat, row.lng);
+      assert.ok(off > 0 && off <= 0.45, 'deslocamento ' + off.toFixed(3) + ' km');
+      assert.ok(Math.abs(row.lat / 0.005 - Math.round(row.lat / 0.005)) < 1e-6 && Math.abs(row.lng / 0.005 - Math.round(row.lng / 0.005)) < 1e-6, 'fica na grade de 0,005°');
+      assert.ok(!JSON.stringify(r.data).includes('-3.119') , 'a resposta não devolve coordenadas');
+    });
   } catch (e) { failed++; console.log('ERRO GERAL', e.message); }
   srv.kill();
   await sleep(300);

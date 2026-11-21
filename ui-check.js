@@ -21,7 +21,7 @@ const ok = (n, c, extra) => { results.push([n, !!c]); console.log((c ? '  ok    
   const browser = await chromium.launch();
   const errors = [];
   try {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, permissions: ['geolocation'], geolocation: { latitude: -20.8113771, longitude: -49.3758123 } });
     const page = await ctx.newPage();
     page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
     page.on('response', (r) => { const u = r.url(); if (/messages|swipe/.test(u)) console.log('   net', r.request().method(), u.replace(BASE, ''), r.status()); });
@@ -103,14 +103,22 @@ const ok = (n, c, extra) => { results.push([n, !!c]); console.log((c ? '  ok    
     await page.waitForSelector('#deck .card');
     ok('mostra cartões de perfis reais da API', (await page.locator('#deck .card').count()) >= 1);
     ok('distância aparece arredondada', /km/.test(await page.textContent('#deck .card:not(.back) .dist')));
-    const locked = await page.locator('#deck .card:not(.back) .thumb.lock').count();
-    ok('no plano grátis as fotos extras aparecem bloqueadas', locked > 0, 'locked=' + locked);
+    const lockedSeg = await page.locator('#deck .card:not(.back) .pbar i.lock').count();
+    ok('no plano grátis as fotos extras aparecem como barrinhas bloqueadas', lockedSeg > 0, 'lock=' + lockedSeg);
+    ok('barra de localização mostra a cidade e o botão de GPS', /Perto de/.test(await page.textContent('#locTxt')) && (await page.locator('#locBtn').isVisible()));
     await page.screenshot({ path: path.join(OUT, 'ui-3-descobrir.png') });
-    await page.click('#deck .card:not(.back) .thumb.lock');
-    ok('tocar numa foto bloqueada abre a oferta de plano', await page.locator('#payModal').isVisible());
+    const tapCard = async (fx) => { const bb = await page.locator('#deck .card:not(.back)').boundingBox(); await page.mouse.click(bb.x + bb.width * fx, bb.y + bb.height * 0.3); };
+    await tapCard(0.85);
+    ok('tocar na direita da foto bloqueada abre a oferta de plano', await page.locator('#payModal').isVisible());
     await page.click('#pwClose');
     const radiusMax = await page.getAttribute('#fRadius', 'max');
     ok('raio máximo do plano grátis é 10 km', radiusMax === '10', radiusMax);
+
+    const gpsResp = page.waitForResponse((r) => r.url().endsWith('/api/me/location') && r.request().method() === 'POST');
+    await page.click('#locBtn');
+    const gr = await gpsResp; const gj = await gr.json().catch(() => ({}));
+    ok('o botão pega a localização na hora e guarda como GPS', gr.status() === 200 && gj.user && gj.user.locSource === 'gps', 'status=' + gr.status());
+    await page.waitForSelector('#deck .card, #deck .empty');
 
     console.log('\nMatch e conversa');
     let matched = false;
@@ -152,10 +160,17 @@ const ok = (n, c, extra) => { results.push([n, !!c]); console.log((c ? '  ok    
     ok('assinar o Plus muda o plano no cabeçalho', true);
     ok('raio sobe para 50 km', (await page.getAttribute('#fRadius', 'max')) === '50');
     await page.click('#t-descobrir');
-    await page.waitForFunction(() => document.querySelector('#deck .card:not(.back) .thumb:not(.lock)') || !document.querySelector('#deck .card'));
-    const unlocked = await page.locator('#deck .card:not(.back) .thumb:not(.lock)').count();
-    ok('com plano pago as fotos extras ficam liberadas', unlocked > 0);
-    if (unlocked) { await page.click('#deck .card:not(.back) .thumb:not(.lock)'); await page.waitForSelector('#lbImg img'); ok('galeria abre com a foto real', true); await page.click('#lbClose'); }
+    await page.waitForFunction(() => document.querySelector('#deck .card:not(.back) .pbar') || !document.querySelector('#deck .card'));
+    const hasBar = await page.locator('#deck .card:not(.back) .pbar').count();
+    ok('com plano pago a foto passa de lado ao tocar na direita', await (async () => {
+      if (!hasBar) return true;
+      const bb = await page.locator('#deck .card:not(.back)').boundingBox();
+      await page.mouse.click(bb.x + bb.width * 0.85, bb.y + bb.height * 0.3);
+      const on = await page.locator('#deck .card:not(.back) .pimg.on').getAttribute('data-i');
+      await page.mouse.click(bb.x + bb.width * 0.1, bb.y + bb.height * 0.3);
+      const back = await page.locator('#deck .card:not(.back) .pimg.on').getAttribute('data-i');
+      return on === '1' && back === '0';
+    })());
 
     console.log('\nCelular');
     await page.setViewportSize({ width: 390, height: 844 });
