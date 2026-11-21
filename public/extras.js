@@ -1,4 +1,4 @@
-/* Jogos e Proteção. Tudo aqui roda no aparelho da pessoa; nada disso concede benefício pago.
+/* Proteção. Tudo aqui roda no aparelho da pessoa; nada disso concede benefício pago.
    Depende dos ganchos que o app.js expõe em window.PP. */
 (function () {
 'use strict';
@@ -12,6 +12,7 @@ const norm = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCa
 const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
 const hhmm = (t) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 const digits = (s) => String(s || '').replace(/\D/g, '');
+async function copyText(t) { try { await navigator.clipboard.writeText(t); return true; } catch (e) { return false; } }
 const reduceMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* ---------- armazenamento por usuário ---------- */
@@ -47,167 +48,6 @@ PP.guardMsg = async (text) => {
   const fl = scanOut(text); if (!fl.length) return true;
   return confirmBox('Você está compartilhando um dado pessoal', fl.map((f) => f.t).join(' ') + ' Enviar mesmo assim?', 'Enviar mesmo assim');
 };
-
-/* ---------- missões e sequência (só para animar: não concedem benefício) ---------- */
-const MISSIONS = [['like', 'Curtir 3 perfis', 3], ['msg', 'Enviar 1 mensagem', 1], ['map', 'Abrir o mapa', 1], ['quiz', 'Fazer o quiz de estilo', 1]];
-function daily() {
-  const t = today();
-  if (X.daily.d !== t) { X.daily = { d: t, like: 0, msg: 0, map: 0, quiz: 0, done: false }; if (X.streak.last && X.streak.last !== yest()) X.streak.n = 0; saveX(); }
-  return X.daily;
-}
-PP.mission = (k) => {
-  if (!uid) return;
-  const d = daily(); d[k] = (d[k] || 0) + 1;
-  if (!d.done && MISSIONS.every((m) => d[m[0]] >= m[2])) { d.done = true; X.streak.n++; X.streak.last = today(); toast('Missões completas! Sequência de ' + X.streak.n + ' dia' + (X.streak.n > 1 ? 's' : '') + '.'); }
-  saveX(); if (S.tab === 'jogos') renderJogos();
-};
-
-/* ---------- cartão para compartilhar (imagem gerada no aparelho) ---------- */
-function wrapText(x, t, px, py, maxW, lh, maxLines) {
-  const w = t.split(' '); let line = '', n = 0;
-  for (let i = 0; i < w.length; i++) { const test = line ? line + ' ' + w[i] : w[i]; if (x.measureText(test).width > maxW && line) { x.fillText(line, px, py); py += lh; line = w[i]; if (++n >= maxLines - 1) break; } else line = test; }
-  x.fillText(line, px, py); return py + lh;
-}
-function makeCard(o) {
-  const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
-  const g = x.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#0B0D13'); g.addColorStop(.6, '#1E1048'); g.addColorStop(1, '#4C1D95'); x.fillStyle = g; x.fillRect(0, 0, W, H);
-  x.strokeStyle = 'rgba(255,255,255,.12)'; x.lineWidth = 3; [120, 230, 340, 450].forEach((r) => { x.beginPath(); x.arc(W - 60, 170, r, 0, 7); x.stroke(); });
-  [[W - 250, 110, '#F472B6'], [W - 110, 300, '#34D399'], [W - 380, 260, '#60A5FA']].forEach((p) => { x.fillStyle = p[2]; x.beginPath(); x.arc(p[0], p[1], 20, 0, 7); x.fill(); });
-  x.fillStyle = '#7C3AED'; x.beginPath(); x.arc(W - 60, 170, 16, 0, 7); x.fill();
-  const ff = '"Plus Jakarta Sans",Inter,system-ui,sans-serif';
-  x.fillStyle = '#34D399'; x.font = '700 34px ' + ff; x.fillText(o.kicker.toUpperCase(), 80, 130);
-  x.fillStyle = '#fff'; x.font = '800 110px ' + ff; let y = wrapText(x, o.title, 80, 560, W - 160, 124, 3);
-  x.fillStyle = '#C9CFE0'; x.font = '500 44px ' + ff; y = wrapText(x, o.sub, 80, y + 30, W - 160, 62, 4);
-  let tx = 80, ty = Math.max(y + 30, 1020); x.font = '700 34px ' + ff;
-  (o.tags || []).slice(0, 5).forEach((t) => { const w = x.measureText(t).width + 44; if (tx + w > W - 80) { tx = 80; ty += 70; } x.fillStyle = 'rgba(255,255,255,.14)'; x.beginPath(); x.roundRect(tx, ty - 42, w, 58, 29); x.fill(); x.fillStyle = '#fff'; x.fillText(t, tx + 22, ty); tx += w + 14; });
-  x.fillStyle = '#fff'; x.font = '800 46px ' + ff; x.fillText('pertinho', 80, H - 110);
-  x.fillStyle = '#98A2B8'; x.font = '500 32px ' + ff; x.fillText('Descubra o seu: ' + location.host + (o.code ? ' · convite ' + o.code : ''), 80, H - 58);
-  return c;
-}
-let SH = null;
-async function openShare(o, text) {
-  let code = '', link = location.origin + '/';
-  try { const r = await api('GET', '/api/me/referral'); code = r.code; link = r.link; } catch (e) { /* segue sem convite */ }
-  const cv = makeCard(Object.assign({ code }, o));
-  cv.toBlob((b) => {
-    if (SH && SH.url) URL.revokeObjectURL(SH.url);
-    SH = { blob: b, url: b ? URL.createObjectURL(b) : '', text: text + ' ' + link, link };
-    $('#xShImg').src = SH.url; openModal('modalShare');
-  }, 'image/png');
-}
-async function copyText(t) { try { await navigator.clipboard.writeText(t); return true; } catch (e) { return false; } }
-$('#xShNative').onclick = async () => {
-  if (!SH) return;
-  try {
-    const f = SH.blob && new File([SH.blob], 'pertinho.png', { type: 'image/png' });
-    if (f && navigator.canShare && navigator.canShare({ files: [f] })) await navigator.share({ files: [f], text: SH.text });
-    else if (navigator.share) await navigator.share({ text: SH.text, url: SH.link });
-    else { $('#xShDl').click(); await copyText(SH.text); toast('Imagem baixada e texto copiado.'); }
-  } catch (e) { if (e && e.name !== 'AbortError') toast('Não foi possível abrir o compartilhamento.'); }
-};
-$('#xShDl').onclick = () => { if (!SH || !SH.url) return; const a = document.createElement('a'); a.href = SH.url; a.download = 'pertinho.png'; document.body.appendChild(a); a.click(); a.remove(); };
-$('#xShCopy').onclick = async () => { if (SH) toast((await copyText(SH.text)) ? 'Texto e link copiados.' : 'Não consegui copiar.'); };
-
-/* ---------- quiz e roleta ---------- */
-const QZ = [
-  ['Sábado de manhã, o que você faz?', [['Trilha ou corrida ao ar livre', 'A'], ['Café da manhã demorado', 'R'], ['Vou a uma livraria ou exposição', 'P'], ['Durmo até tarde e guardo energia', 'N']]],
-  ['O primeiro encontro ideal tem...', [['Movimento e algo novo para fazer', 'A'], ['Clima aconchegante e luz baixa', 'R'], ['Conversa que passa do horário', 'P'], ['Música e gente em volta', 'N']]],
-  ['Você descreve seu humor como...', [['Curioso(a) e inquieto(a)', 'A'], ['Sentimental e atencioso(a)', 'R'], ['Observador(a) e engraçado(a)', 'P'], ['Espontâneo(a) e animado(a)', 'N']]],
-  ['Escolha uma trilha sonora:', [['Playlist de estrada', 'A'], ['MPB para ouvir a dois', 'R'], ['Podcast ou papo sem trilha', 'P'], ['Show ao vivo', 'N']]],
-  ['Plano B se chover:', [['Vamos de capa de chuva mesmo', 'A'], ['Chocolate quente e filme', 'R'], ['Jogo de tabuleiro e conversa', 'P'], ['Bar com música ao vivo', 'N']]],
-  ['O que mais atrai em alguém?', [['Energia e iniciativa', 'A'], ['Carinho e gestos', 'R'], ['Inteligência e humor', 'P'], ['Presença e carisma', 'N']]],
-];
-const RES = {
-  A: { name: 'O Explorador', desc: 'Você transforma qualquer encontro em aventura. Funciona melhor ao ar livre, com algo para descobrir juntos.', place: 'Parque ou mirante', tags: ['Corrida', 'Trilhas', 'Viagens', 'Pets'] },
-  R: { name: 'O Romântico de Café', desc: 'Você valoriza detalhes, calma e atenção. Um bom café e uma boa conversa resolvem tudo.', place: 'Café ou livraria com café', tags: ['Café', 'Livros', 'Culinária', 'Música'] },
-  P: { name: 'O Papo Sem Fim', desc: 'Você se conecta pela cabeça. O encontro certo é aquele em que ninguém olha o relógio.', place: 'Livraria com café', tags: ['Livros', 'Cinema', 'Games', 'Fotografia'] },
-  N: { name: 'A Alma da Noite', desc: 'Você é energia, música e espontaneidade. Seu lugar é onde tem gente e som, de preferência em local público.', place: 'Praça movimentada', tags: ['Música', 'Cinema', 'Games', 'Culinária'] },
-};
-let Q = null;
-const IDEAS = ['Café e 40 minutos de conversa', 'Caminhada no parque', 'Sorvete no fim da tarde', 'Livraria: cada um indica um livro', 'Pôr do sol no mirante', 'Fotografar a cidade juntos', 'Feira: provar 3 coisas novas', 'Jogo de tabuleiro num café'];
-const SHORT = ['Café', 'Parque', 'Sorvete', 'Livraria', 'Pôr do sol', 'Fotos', 'Feira', 'Jogos'];
-const PLACES = ['Café', 'Praça', 'Parque', 'Livraria', 'Sorveteria', 'Shopping (praça de alimentação)'];
-let wrot = 0, wres = null, spinning = false, ref = null;
-
-function nearby(tags) {
-  const lo = tags.map(norm);
-  return (S.deck || []).map((p) => ({ p, n: (p.interests || []).filter((t) => lo.some((x) => norm(t).includes(x) || x.includes(norm(t)))).length }))
-    .sort((a, b) => b.n - a.n).slice(0, 2).map((x) => x.p.name);
-}
-function renderJogos() {
-  const box = $('#p-jogos'); if (!box || !uid) return;
-  const d = daily(), done = MISSIONS.filter((m) => d[m[0]] >= m[2]).length;
-  const seg = 360 / IDEAS.length;
-  const bg = 'conic-gradient(' + IDEAS.map((_, i) => `hsl(${i * 47 + 250} 62% ${i % 2 ? 38 : 46}%) ${i * seg}deg ${(i + 1) * seg}deg`).join(',') + ')';
-  let quiz;
-  if (Q && Q.i < QZ.length) {
-    const q = QZ[Q.i];
-    quiz = `<h3>Quiz: seu estilo de encontro <span class="chip">${Q.i + 1}/${QZ.length}</span></h3><div class="qprog">${QZ.map((x, i) => `<i class="${i <= Q.i ? 'on' : ''}"></i>`).join('')}</div><strong>${esc(q[0])}</strong>${q[1].map((o) => `<button type="button" class="qopt" data-qa="${o[1]}">${esc(o[0])}</button>`).join('')}`;
-  } else if (X.vibe && RES[X.vibe.k]) {
-    const r = RES[X.vibe.k], np = nearby(r.tags);
-    quiz = `<h3>Seu estilo de encontro</h3><div class="x-vibe"><span class="chip pink">Resultado</span><h3>${esc(r.name)}</h3><p class="note" style="max-width:42ch">${esc(r.desc)}</p><div class="x-row" style="justify-content:center">${r.tags.map((t) => `<span class="chip">${esc(t)}</span>`).join('')}</div><p class="note">Lugar ideal: ${esc(r.place)}.${np.length ? ' Perto de você agora com interesses parecidos: ' + np.map(esc).join(' e ') + '.' : ''}</p></div><button class="btn" type="button" id="xQShare">Compartilhar meu resultado</button><button class="btn ghost small" type="button" id="xQStart">Refazer o quiz</button>`;
-  } else quiz = `<h3>Quiz: seu estilo de encontro</h3><p class="note">6 perguntas rápidas. Você descobre seu estilo e ganha um cartão para compartilhar.</p><button class="btn" type="button" id="xQStart">Começar o quiz</button>`;
-  box.innerHTML = `<div class="x-head"><h2>Jogue e compartilhe</h2><p>Missões do dia, o quiz do seu estilo de encontro, a roleta de ideias e o seu link de convite. Aqui é só diversão: nada disso muda seu plano.</p></div>
-  <div class="x-grid">
-    <div class="x-card"><h3>Missões do dia <span class="chip pink">${done}/${MISSIONS.length}</span></h3>
-      <div class="x-streak x-row" style="flex-wrap:nowrap"><b>${X.streak.n}</b><span class="note">dia${X.streak.n === 1 ? '' : 's'} seguido${X.streak.n === 1 ? '' : 's'}. Complete todas as missões para manter a sequência.</span></div>
-      <div class="x-badges">${[3, 7, 14, 30].map((n) => `<span class="x-badge ${X.streak.n >= n ? 'on' : ''}">${n} dias</span>`).join('')}</div>
-      <div>${MISSIONS.map((m) => { const v = Math.min(d[m[0]] || 0, m[2]), ok = v >= m[2]; return `<div class="x-mission ${ok ? 'x-done' : ''}"><span class="x-ck">${ok ? '✓' : ''}</span><div><div style="font-weight:600;font-size:.9rem">${m[1]}</div><div class="x-bar"><i style="width:${v / m[2] * 100}%"></i></div></div><span class="note">${v}/${m[2]}</span></div>`; }).join('')}</div></div>
-    <div class="x-card" id="xQuiz">${quiz}</div>
-    <div class="x-card"><h3>Roleta do encontro</h3><p class="note">Sem ideia do que fazer? Gire e receba um programa em local público.</p>
-      <div class="wheelbox"><div class="wpin"></div><div class="wheel" id="xWheel" style="background:${bg};transform:rotate(${wrot}deg)">${IDEAS.map((t, i) => `<span style="transform:rotate(${i * seg + seg / 2 - 90}deg)">${esc(SHORT[i])}</span>`).join('')}</div><button class="wspin" type="button" id="xSpin" aria-label="Girar a roleta">GIRAR</button></div>
-      <div id="xWres" aria-live="polite">${wres ? wheelRes() : ''}</div></div>
-    <div class="x-card" id="xInvite"><h3>Convide amigos e ganhe Plus</h3><p class="note">Carregando seu link...</p></div>
-  </div>`;
-  $$('#xQuiz [data-qa]').forEach((b) => { b.onclick = () => { Q.ans.push(b.dataset.qa); Q.i++; if (Q.i >= QZ.length) quizDone(Q.ans); else renderJogos(); }; });
-  const qs = $('#xQStart'); if (qs) qs.onclick = () => { Q = { i: 0, ans: [] }; X.vibe = null; renderJogos(); };
-  const sh = $('#xQShare'); if (sh) sh.onclick = () => { const r = RES[X.vibe.k]; openShare({ kicker: 'Meu estilo de encontro', title: r.name, sub: r.desc, tags: r.tags }, 'Meu estilo de encontro é ' + r.name + '. Qual é o seu?'); };
-  $('#xSpin').onclick = spin;
-  loadInvite();
-}
-function quizDone(ans) {
-  const t = { A: 0, R: 0, P: 0, N: 0 }; ans.forEach((k) => t[k]++);
-  X.vibe = { k: Object.keys(t).sort((a, b) => t[b] - t[a])[0], at: Date.now() }; Q = null; saveX();
-  if (!daily().quiz) PP.mission('quiz'); else renderJogos();
-}
-function wheelRes() {
-  const ms = (S.matches || []);
-  return `<div class="x-card" style="padding:.9rem;background:var(--surface2)"><strong>${esc(wres.idea)}</strong><p class="note">Sugestão de local: ${esc(wres.spot)}. Sempre público e movimentado.</p></div>
-    ${ms.length ? `<div class="x-row" style="flex-wrap:nowrap;margin-top:.6rem"><label class="sr" for="xWsel" style="position:absolute;left:-9999px">Enviar para</label><select id="xWsel">${ms.map((m) => `<option value="${Number(m.id)}">${esc((m.other || m).name || 'Match')}</option>`).join('')}</select><button class="btn small" type="button" id="xWsend">Enviar</button></div>` : '<p class="note">Faça um match para enviar este convite no chat.</p>'}
-    <button class="btn ghost small" type="button" id="xWcopy" style="margin-top:.5rem">Copiar convite</button>`;
-}
-function bindWres() {
-  const c = $('#xWcopy'); if (c) c.onclick = async () => toast((await copyText(wres.text + ' ' + location.origin)) ? 'Convite copiado.' : 'Selecione e copie o texto.');
-  const s = $('#xWsend'); if (s) s.onclick = async () => {
-    try { await api('POST', `/api/matches/${Number($('#xWsel').value)}/messages`, { body: wres.text }); PP.mission('msg'); toast('Convite enviado no chat.'); PP.setTab('matches'); } catch (e) { PP.fail(e); }
-  };
-}
-function spin() {
-  const w = $('#xWheel'); if (!w || spinning) return;
-  const n = IDEAS.length, seg = 360 / n, r = Math.floor(Math.random() * n), cur = ((wrot % 360) + 360) % 360;
-  const target = (((360 - (r + .5) * seg - cur) % 360) + 360) % 360;
-  spinning = true; wrot += (reduceMotion() ? 0 : 1800) + target;
-  w.style.transition = reduceMotion() ? 'none' : ''; w.style.transform = 'rotate(' + wrot + 'deg)';
-  setTimeout(() => {
-    spinning = false; const sp = PLACES[Math.floor(Math.random() * PLACES.length)];
-    wres = { idea: IDEAS[r], spot: sp, text: 'Sorteei um programa para a gente: ' + IDEAS[r] + '. Local público sugerido: ' + sp + '. Topa?' };
-    const el = $('#xWres'); if (el) { el.innerHTML = wheelRes(); bindWres(); }
-  }, reduceMotion() ? 60 : 4100);
-}
-async function loadInvite() {
-  const box = $('#xInvite'); if (!box) return;
-  try {
-    ref = await api('GET', '/api/me/referral');
-    const f = Math.min(ref.rewarded % ref.rules.every, ref.rules.every);
-    box.innerHTML = `<h3>Convide amigos e ganhe Plus</h3><p class="note">Quem entra pelo seu link ganha ${ref.rules.inviteeDays} dias de Plus ao enviar a primeira foto. Você ganha um Destaque por amigo e ${ref.rules.referrerDays} dias de Plus a cada ${ref.rules.every}. Automático e de verdade.</p>
-      <div class="x-row" style="flex-wrap:nowrap"><input type="text" readonly id="xRefLink" value="${esc(ref.link)}" aria-label="Seu link de convite"><button class="btn small" id="xRefCopy" type="button">Copiar</button></div>
-      <div class="x-row"><button class="btn" id="xRefShare" type="button">Compartilhar convite</button></div>
-      <div><div class="x-row" style="justify-content:space-between"><span class="note">Rumo ao próximo bônus de Plus</span><strong>${f}/${ref.rules.every}</strong></div><div class="x-bar"><i style="width:${f / ref.rules.every * 100}%"></i></div></div>
-      <p class="note"><strong>${ref.rewarded}</strong> prêmio(s) liberado(s) · <strong>${ref.pending}</strong> aguardando a primeira foto do amigo.</p>`;
-    $('#xRefCopy').onclick = async () => toast((await copyText(ref.link)) ? 'Link copiado.' : 'Selecione e copie o link.');
-    $('#xRefShare').onclick = () => openShare({ kicker: 'Convite pertinho', title: 'Encontros perto de você, sem rodeios', sub: 'Ganhe 3 dias de Plus com o meu convite.', tags: ['Mapa', 'Locais públicos', 'Quiz'] }, 'Entre no Pertinho com o meu convite e ganhe 3 dias de Plus.');
-  } catch (e) { box.innerHTML = '<h3>Convide amigos</h3><p class="note">Não consegui carregar seu link agora. Tente de novo em instantes.</p>'; }
-}
 
 /* ---------- bloqueio por PIN (PBKDF2 via WebCrypto) ---------- */
 const subtle = window.crypto && window.crypto.subtle;
@@ -400,8 +240,6 @@ PP.onUser = (u) => {
 };
 PP.onTab = (t) => {
   if (!uid) return;
-  if (t === 'mapa') PP.mission('map');
-  if (t === 'jogos') renderJogos();
   if (t === 'seguranca') renderSeg();
 };
 // Trava logo ao abrir a página, antes de saber quem é a pessoa, se o último usuário tinha PIN.

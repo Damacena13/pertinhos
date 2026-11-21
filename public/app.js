@@ -332,7 +332,7 @@ $('#planChip').addEventListener('click', (e) => { e.preventDefault(); if (S.user
 function setTab(t) {
   S.tab = t;
   $$('.tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === t)));
-  ['descobrir', 'mapa', 'matches', 'jogos', 'seguranca', 'perfil', 'planos'].forEach((n) => { $('#p-' + n).hidden = n !== t; });
+  ['descobrir', 'mapa', 'matches', 'seguranca', 'perfil', 'planos'].forEach((n) => { $('#p-' + n).hidden = n !== t; });
   $('#filters').style.display = (t === 'descobrir' || t === 'mapa') ? '' : 'none';
   if (t === 'descobrir') { loadDeck(); loadCityBanner(); }
   if (t === 'mapa') { loadDeck().then(renderMap); loadRings(); renderSpots(); loadRadar(); }
@@ -441,7 +441,6 @@ async function act(kind, profile) {
     const r = await api('POST', '/api/swipe', { userId: p.id, kind });
     S.deck = S.deck.filter((x) => x.id !== p.id);
     if (S.deckMeta) S.deckMeta.likesLeft = r.likesLeft;
-    if (kind !== 'pass' && window.PP && PP.mission) PP.mission('like');
     setTimeout(() => { renderDeck(); renderNear(); if (S.tab === 'mapa') { S.selected = null; renderMap(); renderSel(); } }, fromDeck ? 280 : 0);
     if (r.match) { showMatch(r.profile, r.matchId); loadMatches(false); }
     if (S.deck.length <= 1) setTimeout(loadDeck, 400);
@@ -630,7 +629,7 @@ function renderThread() {
   th.querySelectorAll('[data-place]').forEach((b) => { b.onclick = async () => { $('#suggest').hidden = true; await sendMsg({ kind: 'place', body: b.dataset.place }); }; });
 }
 async function sendMsg(payload) {
-  try { await api('POST', `/api/matches/${S.activeMatch}/messages`, payload); if (S.thread && S.thread.request === 'received') { S.thread.request = null; const rb = $('#reqBar'); if (rb) rb.remove(); } if (window.PP && PP.mission) PP.mission('msg'); await pollThread(); } catch (e) { fail(e); }
+  try { await api('POST', `/api/matches/${S.activeMatch}/messages`, payload); if (S.thread && S.thread.request === 'received') { S.thread.request = null; const rb = $('#reqBar'); if (rb) rb.remove(); } await pollThread(); } catch (e) { fail(e); }
 }
 async function pollThread() {
   if (!S.user || S.tab !== 'matches' || !S.activeMatch || !S.thread || document.hidden) return;

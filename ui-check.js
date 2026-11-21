@@ -55,6 +55,7 @@ const ok = (n, c, extra) => { results.push([n, !!c]); console.log((c ? '  ok    
     await page.waitForSelector('#appView:not([hidden])');
     ok('depois do cadastro entra no app, na aba Perfil', (await page.getAttribute('#t-perfil', 'aria-selected')) === 'true');
     console.log('\nConvite e cidade em lista de espera');
+    ok('o menu não tem mais a aba Jogos', (await page.$('#t-jogos')) === null && (await page.$('#p-jogos')) === null);
     await page.waitForSelector('#inviteModal:not([hidden])', { timeout: 4000 });
     const wa = await page.getAttribute('#invWa', 'href');
     ok('após o cadastro abre o convite com mensagem pronta e link do WhatsApp', /^https:\/\/wa\.me\/\?text=/.test(wa) && decodeURIComponent(wa).includes('?ref='), wa);
@@ -64,6 +65,7 @@ const ok = (n, c, extra) => { results.push([n, !!c]); console.log((c ? '  ok    
     await page.waitForSelector('#cityBanner:not([hidden]) .citybar');
     ok('cidade com poucas pessoas mostra barra de progresso e quantas faltam', /Faltam \d+/.test(await page.textContent('#cityBanner')) && (await page.getAttribute('#cityBanner [role=progressbar]', 'aria-valuenow')) !== null);
     await page.click('#cityInvite');
+    await page.waitForSelector('#inviteModal:not([hidden])', { timeout: 4000 }).catch(() => {});
     ok('"Chamar amigos" abre o convite', await page.isVisible('#inviteModal'));
     await page.click('#inviteModal button[data-close].ghost');
     await page.click('#t-perfil');
