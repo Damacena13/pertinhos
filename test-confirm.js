@@ -63,6 +63,9 @@ const run = (sql, ...a) => { const d = dbq(); try { return d.prepare(sql).run(..
       assert.strictEqual(r.data.user.emailConfirmed, false); ana = r.data.user;
       tok = await confirmLinkFor('ana@teste.com'); assert.ok(tok && tok.length >= 40);
       const m = mails.find((x) => x.body.to[0] === 'ana@teste.com'); assert.ok(m.body.text.includes('https://pertinho.teste/?confirm='));
+      assert.ok(/^Bem-vindo\(a\) ao Pertinho/.test(m.body.subject), 'o primeiro e-mail é o de boas-vindas');
+      assert.ok(m.body.html.includes('Bem-vindo(a) ao Pertinho, Ana') && m.body.text.includes('Oi, Ana'), 'saúda pelo primeiro nome');
+      assert.strictEqual(mails.filter((x) => x.body.to[0] === 'ana@teste.com').length, 1, 'um e-mail só, não dois');
       assert.strictEqual(one("SELECT COUNT(*) c FROM email_confirms WHERE token_hash = ?", tok).c, 0, 'o banco não pode guardar o token puro');
     });
     await t('sem confirmar: não curte, não conversa, não aparece para os outros', async () => {

@@ -288,7 +288,7 @@ app.post('/api/auth/register', limitAuth, async (req, res) => {
   const pt = L.cityPoint(city, id);
   db.prepare('UPDATE users SET lat = ?, lng = ? WHERE id = ?').run(pt.lat, pt.lng, id);
   referrals.ensureCode(id);
-  if (mailer.enabled()) sendConfirmMail(req, db.prepare('SELECT * FROM users WHERE id = ?').get(id));
+  if (mailer.enabled()) sendConfirmMail(req, db.prepare('SELECT * FROM users WHERE id = ?').get(id), { welcome: true });
   const ref = b.ref ? referrals.onRegister(id, b.ref, req.ip) : null;
   await startSession(res, id);
   res.status(201).json({ user: meJson(db.prepare('SELECT * FROM users WHERE id = ?').get(id)), referral: ref ? 'pending' : null });
@@ -363,13 +363,21 @@ function makeResetToken(userId) {
 // Só vale quando o envio de e-mail está configurado (RESEND_API_KEY + MAIL_FROM). Sem isso, ninguém fica bloqueado.
 const CONFIRM_MS = 48 * 60 * 60 * 1000;
 const confirmed = (u) => !mailer.enabled() || !!u.email_verified_at || u.role === 'admin' || !!u.is_demo;
-function sendConfirmMail(req, u) {
+function sendConfirmMail(req, u, { welcome = false } = {}) {
   const token = L.newToken();
   db.transaction(() => {
     db.prepare('DELETE FROM email_confirms WHERE user_id = ?').run(u.id);
     db.prepare('INSERT INTO email_confirms (token_hash, user_id, expires_at, created_at) VALUES (?,?,?,?)').run(L.sha256(token), u.id, now() + CONFIRM_MS, now());
   })();
   const link = `${publicBase(req)}/?confirm=${token}`;
+  const first = String(u.name || '').split(' ')[0] || 'tudo bem';
+  if (welcome) {
+    return mailer.sendMail({
+      to: u.email, subject: 'Bem-vindo(a) ao Pertinho! Confirme seu e-mail',
+      text: `Oi, ${first}! Que bom ter você no Pertinho.\n\nO Pertinho mostra pessoas reais perto de você, por distância e interesses em comum, e sugere um lugar público para o primeiro café. Sua localização aparece sempre aproximada, nunca o seu endereço.\n\nPara começar a curtir e conversar, confirme seu e-mail (o link vale por 48 horas):\n${link}\n\nDepois, é só completar o perfil com uma foto e descobrir quem está pertinho.\n\nSe não foi você, ignore esta mensagem.`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;color:#222"><h2 style="margin:0 0 12px">Bem-vindo(a) ao Pertinho, ${esc(first)}!</h2><p>O Pertinho mostra pessoas reais perto de você, por distância e interesses em comum, e sugere um lugar público para o primeiro café. Sua localização aparece sempre aproximada, nunca o seu endereço.</p><p>Para começar a curtir e conversar, confirme seu e-mail:</p><p><a href="${link}" style="display:inline-block;background:#8b3ff0;color:#fff;padding:12px 22px;border-radius:999px;text-decoration:none;font-weight:bold">Confirmar meu e-mail</a></p><p style="font-size:13px;color:#666">O link vale por 48 horas. Depois, complete o perfil com uma foto e descubra quem está pertinho.<br>Se não foi você, ignore esta mensagem.</p></div>`,
+    }).catch(() => {});
+  }
   return mailer.sendMail({
     to: u.email, subject: 'Confirme seu e-mail no Pertinho',
     text: `Olá, ${u.name}!\n\nConfirme seu e-mail para curtir e conversar (o link vale por 48 horas):\n${link}\n\nSe não foi você, ignore esta mensagem.`,
